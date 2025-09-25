@@ -1,0 +1,3742 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, quiet = TRUE}
+suppressPackageStartupMessages(suppressWarnings(library(ggh4x)))
+suppressPackageStartupMessages(suppressWarnings(library(dplyr)))
+suppressPackageStartupMessages(suppressWarnings(library(tidyr)))
+suppressPackageStartupMessages(suppressWarnings(library(tidyverse)))
+suppressPackageStartupMessages(suppressWarnings(library(ggplot2)))
+suppressPackageStartupMessages(suppressWarnings(library(magrittr)))
+suppressPackageStartupMessages(suppressWarnings(library(lme4)))
+suppressPackageStartupMessages(suppressWarnings(library(plm)))
+suppressPackageStartupMessages(suppressWarnings(library(lmtest)))
+suppressPackageStartupMessages(suppressWarnings(library(car)))
+suppressPackageStartupMessages(suppressWarnings(library(lmerTest)))
+suppressPackageStartupMessages(suppressWarnings(library(nlme)))
+suppressPackageStartupMessages(suppressWarnings(library(corrplot)))
+suppressPackageStartupMessages(suppressWarnings(library(remotes)))
+suppressPackageStartupMessages(suppressWarnings(library(future)))
+suppressPackageStartupMessages(suppressWarnings(library(stringr)))
+suppressPackageStartupMessages(suppressWarnings(library(glue)))
+suppressPackageStartupMessages(suppressWarnings(library(scales)))      
+suppressPackageStartupMessages(suppressWarnings(library(patchwork)))
+suppressPackageStartupMessages(suppressWarnings(library(tidygeocoder)))
+suppressPackageStartupMessages(suppressWarnings(library(maps)))
+suppressPackageStartupMessages(suppressWarnings(library(sf)))
+suppressPackageStartupMessages(suppressWarnings(library(gridExtra)))
+suppressPackageStartupMessages(suppressWarnings(library(pscl)))
+suppressPackageStartupMessages(suppressWarnings(library(forecast)))
+suppressPackageStartupMessages(suppressWarnings(library(vars)))
+suppressPackageStartupMessages(suppressWarnings(library(igraph)))
+suppressPackageStartupMessages(suppressWarnings(library(tseries)))
+suppressPackageStartupMessages(suppressWarnings(library(broom)))
+suppressPackageStartupMessages(suppressWarnings(library(circlize)))
+suppressPackageStartupMessages(suppressWarnings(library(xtable)))
+suppressPackageStartupMessages(suppressWarnings(library(estimatr)))
+suppressPackageStartupMessages(suppressWarnings(library(readxl)))
+suppressPackageStartupMessages(suppressWarnings(library(dynlm)))
+suppressPackageStartupMessages(suppressWarnings(library(burnr)))
+suppressPackageStartupMessages(suppressWarnings(library(quantreg)))
+suppressPackageStartupMessages(suppressWarnings(library(texreg)))
+suppressPackageStartupMessages(suppressWarnings(library(xtable)))
+suppressPackageStartupMessages(suppressWarnings(library(performance)))
+suppressPackageStartupMessages(suppressWarnings(library(mFilter)))
+suppressPackageStartupMessages(suppressWarnings(library(purrr)))
+suppressPackageStartupMessages(suppressWarnings(library(MARSS)))
+suppressPackageStartupMessages(suppressWarnings(library(grid)))
+suppressPackageStartupMessages(suppressWarnings(library(stargazer)))
+suppressPackageStartupMessages(suppressWarnings(library(ggpointdensity)))
+suppressPackageStartupMessages(suppressWarnings(library(ggExtra)))
+suppressPackageStartupMessages(suppressWarnings(library(marginaleffects)))
+suppressPackageStartupMessages(suppressWarnings(library(scales)))
+suppressPackageStartupMessages(suppressWarnings(library(rms)))
+suppressPackageStartupMessages(suppressWarnings(library(gam)))
+suppressPackageStartupMessages(suppressWarnings(library(ggpattern)))
+suppressPackageStartupMessages(suppressWarnings(library(fixest)))
+suppressPackageStartupMessages(suppressWarnings(library(kableExtra)))
+suppressPackageStartupMessages(suppressWarnings(library(sjPlot)))
+suppressPackageStartupMessages(suppressWarnings(library(sjmisc)))
+suppressPackageStartupMessages(suppressWarnings(library(ggeffects)))
+suppressPackageStartupMessages(suppressWarnings(library(ggrepel)))
+suppressPackageStartupMessages(suppressWarnings(library(Rfast)))
+suppressPackageStartupMessages(suppressWarnings(library(geosphere)))
+suppressPackageStartupMessages(suppressWarnings(library(lpirfs)))
+suppressPackageStartupMessages(suppressWarnings(library(future.apply)))
+suppressPackageStartupMessages(suppressWarnings(library(haven)))
+suppressPackageStartupMessages(suppressWarnings(library(ggpubr)))
+suppressPackageStartupMessages(suppressWarnings(library(modelsummary)))
+library(furrr)
+library(purrr)
+```
+
+
+
+
+
+
+# 1. Prices
+
+
+```{r}
+data <- read.csv('processed data/price_2023_enso.csv')
+#put Location and Year as first columns
+data <- data %>% 
+    mutate(Decade = floor(Year / 10) * 10) %>% 
+    dplyr::select(Location,Year,Decade, everything()) %>% 
+  drop_na() %>% 
+  distinct() %>% 
+  arrange(Year) 
+
+
+
+data_lag <- data %>%
+  group_by(Location) %>%
+  mutate(nino34_l1 = dplyr::lag(nino34, 1),
+         nino12_l1 = dplyr::lag(nino12, 1),
+         nino3_l1 = dplyr::lag(nino3, 1),
+         nino4_l1 = dplyr::lag(nino4, 1),
+         NAO_l1 = dplyr::lag(NAO_cal, 1),
+         JSL_l1 = dplyr::lag(JSL, 1),
+         temp_summer_l1 = dplyr::lag(temp_summer, 1),
+         temp_winter_l1 = dplyr::lag(temp_winter, 1),
+         precip_summer_l1 = dplyr::lag(precip_summer, 1),
+         precip_winter_l1 = dplyr::lag(precip_winter, 1),
+         PDSI_l1 = dplyr::lag(PDSI, 1)) %>% 
+  drop_na()
+
+
+data_region <- read.csv('processed data/famine_region_data.csv')
+
+```
+
+
+
+```{r}
+data %>%
+  rename(
+    `temp AMJJ`   = temp_summer,
+    `temp NDJF`   = temp_winter,
+    `precip AMJJ` = precip_summer,
+    `precip NDJF` = precip_winter,
+    NINO3.4 = nino34,
+    PDSI = PDSI,
+    `ongoing wars` = ongoing_wars
+    
+  ) %>% 
+
+# Then call datasummary
+datasummary(
+  formula = Price + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
+  output = "figures/tables/summary_price.tex",
+  title = "Summary Statistics for grain price data"
+)
+```
+
+
+
+
+```{r}
+est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL | Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est3 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est4 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+
+
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+vcov = DK~Year,
+fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+drop.section = "fixef",
+extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Location Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                  "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")))
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+    "teleco_PDSI_10" = "Teleconnected",
+  "logprice" = "Log Grain Price")
+  
+
+etable(est1, est2, est3,est4,
+       vcov = DK ~ Year,
+       label = "tab:grainprice_FE",
+      keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       drop.section = "fixef",
+      title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Prices",
+      extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Location Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                  "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")),
+       file = "figures/tables/Ljungqvist_ENSO_price_main.tex",
+       replace = TRUE)
+
+```
+
+
+
+
+## IRF
+
+
+
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "All regions" = NULL,
+  "Teleconnected" = quote(teleco_PDSI_10 == 1),
+  "Weakly affected" = quote(teleco_PDSI_10 == 0),
+  "All w. controls" = "controls"
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- data %>%
+    mutate(Decade = as.factor(Decade)) %>%
+    { if (!is.null(condition) && condition != "controls") filter(., !!condition) else . }
+  
+  # Define controls based on condition
+  exog_vars <- if (label == "All w. controls") {
+    c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", 
+      "precip_winter", "ongoing_wars", "Deaths")
+  } else {
+    c("Decade")
+
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = exog_vars,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r}
+#round numeric to 2 float *100 and display
+irfs_full %>%
+  mutate(across(where(is.numeric), ~ round(. * 100, 2)))
+```
+
+
+
+```{r, fig.width=6, fig.height=5}
+# Updated manual aesthetics with Controls only
+ggplot(irfs_full, aes(x = horizon, color = label, fill = label, linetype = label)) +
+  geom_ribbon(
+    data = filter(irfs_full, label == "All regions"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.2, color = NA
+  ) +
+  geom_line(aes(y = irf_mean), size = 1.2) +
+  geom_line(
+  data = filter(irfs_full, label == "All regions"),
+  aes(y = irf_mean),
+  size = 0.9,
+  color = "black" # or scale_color_manual default
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(breaks = 0:max(irfs_full$horizon)) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+  scale_color_manual(values = c(
+    "All regions" = "black",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "cornflowerblue",
+    "All w. controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "All regions" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "skyblue",
+    "All w. controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "All regions" = "solid",
+    "Teleconnected" = "dashed",
+    "Weakly affected" = "dashed",
+    "All w. controls" = "solid"
+  )) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Grain Price variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save figure
+ggsave("figures/plots/IRF_ENSO_price_teleco.pdf", device = cairo_pdf, dpi = 300)
+
+```
+
+
+## FSV IRF
+
+
+
+```{r}
+data_federico <- read.csv('processed data/federico_prices_enso.csv') %>% 
+  mutate(Decade = floor(Year / 10) * 10) %>% 
+  dplyr::select(Location,Year,Decade, everything()) %>% 
+  drop_na() %>% 
+  distinct() %>% 
+  arrange(Year)
+```
+
+```{r}
+control_dict <- list(
+  "Base" = "Decade",
+  "Climate" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL"),
+  "Conflict" = c("Decade", "ongoing_wars", "Deaths"),
+  "Climate + Conflict" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL", "ongoing_wars", "Deaths"
+))
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (control_name in names(control_dict)) {
+  
+  controls <- control_dict[[control_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = data_federico %>% mutate(Decade = as.factor(Decade)),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = control_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r, fig.width=6, fig.height=5}
+# Plot
+ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
+  # RIBBON ONLY FOR "None"
+  geom_ribbon(
+    data = filter(irfs_full, controls == "Base"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = controls), size = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Base" = "black",      
+    "Climate" = "firebrick",   
+    "Conflict" = "steelblue",  
+    "Climate + Conflict" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base" = "cornflowerblue",
+    "Climate" = "firebrick",
+    "Conflict" = "steelblue",
+    "Climate + Conflict" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base" = "solid",
+    "Climate" = "solid",
+    "Conflict" = "dashed",
+    "Climate + Conflict" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Wheat Price Variation",
+    color = "Controls",
+    fill = "Controls",
+    linetype = "Controls"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  )  +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    shape = guide_legend(nrow = 2, byrow = TRUE)
+  ) 
+
+#save
+ggsave("figures/plots/IRF_ENSO_federico.pdf", device = cairo_pdf, dpi=300)
+```
+
+
+
+
+
+## Allen IRF
+
+```{r}
+wheat_dta <- read_dta('processed data/wheatprices_dataset.dta') %>%
+  left_join(data_region %>% 
+              dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
+            by = c("year" = "Year")) %>%
+  mutate(decade = floor(year / 10) * 10) %>%
+  drop_na() %>% 
+  distinct() %>% 
+  dplyr::select(citynum, year,decade, everything()) 
+```
+
+```{r}
+control_dict <- list(
+  "Base" = "decade",
+  "Climate" = c("decade", "PDSI_europe", "growseasontemp", "meantemp", "growseasonrain", "NAO_cal", "JSL"),
+  "Conflict" = c("decade", "ongoing_wars", "Deaths"),
+  "Climate + Conflict" = c("decade", "PDSI_europe", "growseasontemp", "meantemp", "growseasonrain", "ongoing_wars", "Deaths")
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (control_name in names(control_dict)) {
+  
+  controls <- control_dict[[control_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = wheat_dta %>% mutate(decade = as.factor(decade)),
+    endog_data   = "logwheatprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = control_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+```{r, fig.width=6, fig.height=5}
+# Plot
+ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
+  # RIBBON ONLY FOR "None"
+  geom_ribbon(
+    data = filter(irfs_full, controls == "Base"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = controls), size = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Base" = "black",      
+    "Climate" = "firebrick",   
+    "Conflict" = "steelblue",  
+    "Climate + Conflict" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base" = "cornflowerblue",
+    "Climate" = "firebrick",
+    "Conflict" = "steelblue",
+    "Climate + Conflict" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base" = "solid",
+    "Climate" = "solid",
+    "Conflict" = "dashed",
+    "Climate + Conflict" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Wheat Price Variation",
+    color = "Controls",
+    fill = "Controls",
+    linetype = "Controls"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  )  +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    shape = guide_legend(nrow = 2, byrow = TRUE)
+  ) 
+
+#save
+ggsave("figures/plots/IRF_ENSO_wheatprice.pdf", device = cairo_pdf, dpi=300)
+```
+
+
+
+
+## Check ninos
+
+```{r}
+nino_dict <- list(
+  "Nino1.2" = "nino12",
+  "Nino3" = "nino3",
+  "Nino3.4" = "nino34",
+  "Nino4" = "nino4"
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (nino_name in names(nino_dict)) {
+  
+  nino <- nino_dict[[nino_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = data %>% mutate(Decade = as.factor(Decade)),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = nino,
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = nino_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
+  # RIBBON ONLY FOR "None"
+  geom_ribbon(
+    data = filter(irfs_full, controls == "Nino3.4"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = controls), size = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Nino3.4" = "black",      
+    "Nino1.2" = "#d95f02",   
+    "Nino3" = "steelblue",  
+    "Nino4" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Nino3.4" = "cornflowerblue",
+    "Nino1.2" = "#d95f02",
+    "Nino3" = "steelblue",
+    "Nino4" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Nino3.4" = "solid",
+    "Nino1.2" = "solid",
+    "Nino3" = "dashed",
+    "Nino4" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response",
+    color = "Index",
+    fill = "Index",
+    linetype = "Index"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  ) 
+
+# Save
+ggsave("figures/plots/IRF_ENSO_price_ninocheck.pdf", device = cairo_pdf, dpi=300)
+```
+
+
+
+## Check subsamples
+
+
+
+```{r}
+set.seed(42)
+
+# Step 1: All leave-one-out subsamples
+locations <- unique(data$Location)
+sample_size <- length(locations) - 1
+location_combos <- combn(locations, sample_size, simplify = FALSE)
+
+# Step 2: Loop through each subsample and compute IRFs for the "Base" model
+irf_list <- list()
+
+for (i in seq_along(location_combos)) {
+  sampled_locations <- location_combos[[i]]
+  left_out <- setdiff(locations, sampled_locations)
+  
+  # Subset data
+  sub_data <- subset(data, Location %in% sampled_locations) %>%
+    mutate(Decade = as.factor(Decade))
+  
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste("No", left_out),
+    horizon   = 0:10,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+  
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all
+irfs_subsamples <- bind_rows(irf_list)
+
+```
+
+```{r, fig.width=12, fig.height=12}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "gray70", alpha = 0.3) +
+  geom_line(size = 1, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 6) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_subsample_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+```
+
+
+```{r}
+# Define non-overlapping 20-year windows
+years <- sort(unique(data$Year))
+block_starts <- seq(min(years), max(years) - 20, by = 20)
+year_blocks <- lapply(block_starts, function(start_year) start_year:(start_year + 19))
+
+# Step 2: Loop through each subsample and compute IRFs
+irf_list <- list()
+
+for (i in seq_along(year_blocks)) {
+  excluded_years <- year_blocks[[i]]
+  keep_years <- setdiff(years, excluded_years)
+
+  # Subset data
+  sub_data <- subset(data, Year %in% keep_years) %>%
+    mutate(Decade = as.factor(Decade))
+
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste0("Drop ", min(excluded_years), "-", max(excluded_years)),
+    horizon   = 0:10,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all results
+irfs_subsamples <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=12, fig.height=12}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "gray70", alpha = 0.3) +
+  geom_line(size = 1, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 4) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+# Save the plot
+ggsave("figures/plots/IRF_subsample_20years_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+```
+
+
+
+## Check SEs
+
+```{r}
+est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+
+est4 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = cluster~ Location+Year)
+
+dict = c(
+  "nino34" = "nino 3.4 T",
+  "l(nino34, 1)" = "nino 3.4 T-1",
+  "l(nino34, 2)" = "nino 3.4 T-2",
+  "l(nino34, 3)" = "nino 3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logprice" = "Log Grain Price",
+  "teleco_PDSI_10" = "Teleconnected")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict)
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       label = "tab:grainprice_SEcheck",
+          title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Prices under different Standard Errors",
+       drop.section = "fixef",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                   "Location Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                  "Standard Errors" = c("Driscoll Kray (L=4)", "Conley (200km)","Conley (500km)", "Two-way Clustered")),
+       file = "figures/tables/SEs_ENSO_price.tex",
+       notes = "\\small Notes: Two-way clustered standard errors at the Location and Year level",
+       replace = TRUE)
+```
+
+
+
+
+## Permutation check
+
+
+
+
+
+```{r}
+set.seed(42)
+n_iter <- 500
+horizon_max <- 10
+shuffle_methods <- c("Entire Sample")
+
+# Function to shuffle nino34
+shuffle_nino34 <- function(data, method) {
+  if (method == "Entire Sample") {
+    data$nino34 <- sample(data$nino34)
+  } else if (method == "Within Location") {
+    data <- data %>%
+      group_by(Location) %>%
+      mutate(nino34 = sample(nino34)) %>%
+      ungroup()
+  } else {
+    stop("Invalid shuffle method")
+  }
+  return(data)
+}
+
+# Compute base IRF
+base_irf <- lp_lin_panel(
+  data_set     = data %>% mutate(Decade = as.factor(Decade)),
+  endog_data   = "logprice",
+  cumul_mult   = TRUE,
+  shock        = "nino34",
+  diff_shock   = FALSE,
+  panel_model  = "within",
+  panel_effect = "individual",
+  c_exog_data  = "Decade",
+  robust_cov   = "vcovSCC",
+  confint      = 1.96,
+  hor          = horizon_max + 1
+)
+
+irf_base_df <- tibble(
+  horizon = 0:horizon_max,
+  irf_mean = as.numeric(base_irf$irf_panel_mean[1, ]),
+  irf_up   = as.numeric(base_irf$irf_panel_up[1, ]),
+  irf_down = as.numeric(base_irf$irf_panel_low[1, ]),
+  type     = "Base"
+)
+
+# --- Parallel bootstrap ---
+plan(multisession)  # use multicore / parallel workers
+
+boot_df <- future_map_dfr(
+  shuffle_methods,
+  function(method) {
+    future_map_dfr(1:n_iter, function(i) {
+      shuffled_data <- shuffle_nino34(data, method)
+      tryCatch({
+        res <- lp_lin_panel(
+          data_set     = shuffled_data %>% mutate(Decade = as.factor(Decade)),
+          endog_data   = "logprice",
+          cumul_mult   = TRUE,
+          shock        = "nino34",
+          diff_shock   = FALSE,
+          panel_model  = "within",
+          panel_effect = "individual",
+          c_exog_data  = "Decade",
+          robust_cov   = "vcovSCC",
+          confint      = 1.96,
+          hor          = horizon_max + 1
+        )
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = as.numeric(res$irf_panel_mean[1, ]),
+          shuffle = method,
+          iter    = i
+        )
+      }, error = function(e) {
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = NA_real_,
+          shuffle = method,
+          iter    = i
+        )
+      })
+    }, .options = furrr_options(seed = TRUE))  # ensures parallel-safe RNG
+  },
+  .options = furrr_options(seed = TRUE)
+)
+
+# --- Summarize across locations (ignoring shuffle) ---
+summary_df <- boot_df %>%
+  group_by(horizon,shuffle) %>%
+  summarise(
+    irf_mean = mean(irf, na.rm = TRUE),
+    irf_low95  = quantile(irf, 0.025, na.rm = TRUE),
+    irf_high95 = quantile(irf, 0.975, na.rm = TRUE),
+    irf_low90  = quantile(irf, 0.05, na.rm = TRUE),
+    irf_high90 = quantile(irf, 0.95, na.rm = TRUE),
+    .groups  = "drop"
+  )
+```
+
+```{r, fig.width=6, fig.height=5}
+
+# --- Plot with 95% (outer) and 90% (inner) CI bands ---
+ggplot() +
+  geom_line(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 1.1) +
+  geom_point(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 2) +
+  # 95% CI ribbon (lighter)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low95, ymax = irf_high95),
+              fill = "cornflowerblue", alpha = 0.15) +
+  # 90% CI ribbon (darker, inside 95%)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low90, ymax = irf_high90),
+              fill = "cornflowerblue", alpha = 0.25) +
+  geom_line(data = summary_df, aes(x = horizon, y = irf_mean),
+            color = "cornflowerblue", size = 1.1, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_x_continuous(breaks = 0:horizon_max) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  theme(legend.position = "none")
+
+ggsave("figures/plots/IRF_ENSO_price_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+
+
+
+# 2. Harvests
+
+
+## Yield 1963
+
+```{r}
+# Step 1: Read and merge data
+yield_dta <- read_dta('processed data/yieldratio_dataset.dta') %>%
+  left_join(data_region %>% 
+              dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
+            by = c("year" = "Year")) %>%
+  mutate(decade = floor(year / 10) * 10) %>% 
+  distinct() %>% 
+  drop_na()
+
+yield_dta <- yield_dta %>%
+  dplyr::select(fid, year,decade, everything()) %>% 
+    filter(unique_sumtotal >= 10, year <= 1800) 
+  
+
+#print number of yuears for each fid
+yield_dta %>%
+  group_by(fid) %>%
+  summarise(years = n_distinct(year)) %>%
+  arrange(desc(years)) %>%
+  ungroup() %>%
+  filter(years > 1)
+```
+
+
+
+
+```{r}
+est1 <- feols(logyield ~ Year + nino34:i(teleco_PDSI_10) + teleco_PDSI_10  + i(Decade), data = yield63, panel.id = c("city", "Year"), notes=F)
+
+est2 <- feols(logyield ~  Year + nino34 + i(Decade)  + temp_summer + temp_winter + precip_winter + PDSI| city, data = yield63, panel.id = c("city", "Year"), notes=F)
+
+
+est3 <- feols(logyield ~ Year + nino34 + i(Decade) + ongoing_wars + log(1+Deaths) | city, data = yield63, panel.id = c("city", "Year"), notes=F)
+
+est4 <- feols(logyield ~  Year + nino34   + i(Decade)  + ongoing_wars + log(1+Deaths)  + temp_summer + temp_winter + precip_winter + PDSI | city, data = yield63, panel.id = c("city","Year"), notes=F)
+
+etable(est1, est2,est3,est4,
+          .vcov = vcovBS,
+       keep = c("nino"),
+              cluster = ~city,
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"))
+
+
+```
+
+
+
+```{r}
+datasummary(
+  formula = yield + nino34 + PDSI_europe + growseasonrain + meantemp + growseasontemp  + ongoing_wars + Deaths ~mean + sd + min + max + N  ,
+  data = yield_dta,
+  output = "figures/tables/summary_yield63.tex",
+  title = "Summary Statistics for grain yield data",
+)
+```
+
+
+
+
+
+```{r}
+control_dict <- list(
+  "Base" = "decade",
+  "Climate" = c("decade", "growseasontemp", "ngrowseasontempn1", "growseasonrain", "ngrowseasonrainn1"),
+  "Conflict" = c("decade", "ongoing_wars", "Deaths"),
+  "Climate + Conflict" = c("decade", "growseasontemp", "ngrowseasontempn1", "growseasonrain", "ngrowseasonrainn1", "ongoing_wars", "Deaths")
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+
+
+# Loop properly over names and controls
+for (control_name in names(control_dict)) {
+  
+  controls <- control_dict[[control_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = yield63 %>% mutate(decade = as.factor(decade), logyield = log(yield)),
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 5
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = control_name, # use the name here, not the list of variables
+    horizon  = 0:4,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=6, fig.height=5}
+# Plot
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = controls, fill = controls, linetype = controls)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Base" = "black",      
+    "Climate" = "firebrick",   
+    "Conflict" = "steelblue",  
+    "Climate + Conflict" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base" = "cornflowerblue",
+    "Climate" = "firebrick",
+    "Conflict" = "steelblue",
+    "Climate + Conflict" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base" = "solid",
+    "Climate" = "solid",
+    "Conflict" = "dashed",
+    "Climate + Conflict" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Yield Ratio variation",
+    color = "Controls",
+    fill = "Controls",
+    linetype = "Controls"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.05),
+    labels = scales::percent_format(accuracy = 1)
+  )  +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    shape = guide_legend(nrow = 2, byrow = TRUE)
+  ) 
+
+ggsave("figures/plots/IRF_ENSO_yield63.pdf", device = cairo_pdf, dpi=300)
+```
+
+
+
+
+## Yield Ljungqvist
+
+```{r}
+yield_2023 <- read.csv('processed data/yield_ljungqvist_2025.csv') %>% 
+  mutate(decade = floor(Year / 10) * 10) %>% 
+  dplyr::select(VarLocationGrain, Year,decade, everything()) 
+
+YR_2023 <- yield_2023 %>% 
+  filter(Type %in% c("YR","YI")) %>% 
+  drop_na() %>% 
+  distinct() %>% 
+  dplyr::select(VarLocationGrain, Year,decade, everything())
+
+TI_2023 <- yield_2023 %>% 
+  filter(Type == "TI") %>% 
+  drop_na() %>% 
+  distinct() %>% 
+  dplyr::select(LocationGrain, Year, decade, everything())
+
+YI_2023 <- yield_2023 %>% 
+  filter(Type == "YI") %>% 
+  drop_na() %>% 
+  distinct() %>% 
+  dplyr::select(LocationGrain, Year,decade, everything())
+
+#print number of years per loc_id
+print(YR_2023 %>%
+  group_by(loc_id) %>%
+  summarise(years = n_distinct(Year)) %>%
+  arrange(desc(years)) %>%
+  ungroup() %>%
+  filter(years > 1))
+
+print(TI_2023 %>%
+  group_by(loc_id) %>%
+  summarise(years = n_distinct(Year)) %>%
+  arrange(desc(years)) %>%
+  ungroup() %>%
+  filter(years > 1))
+
+print(YI_2023 %>%
+  group_by(loc_id) %>%
+  summarise(years = n_distinct(Year)) %>%
+  arrange(desc(years)) %>%
+  ungroup() %>%
+  filter(years > 1))
+
+
+```
+
+
+
+
+
+```{r}
+
+TI_2023 %>% rename(
+    `temp AMJJ`   = temp_summer,
+    `temp NDJF`   = temp_winter,
+    `precip AMJJ` = precip_summer,
+    `precip NDJF` = precip_winter,
+    NINO3.4 = nino34,
+    PDSI = PDSI,
+    `ongoing wars` = ongoing_wars
+    
+  ) %>% 
+
+# Then call datasummary
+datasummary(
+  formula = logyield + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
+  output = "figures/tables/summary_yield_TI.tex",
+  title = "Summary Statistics for grain tithes data"
+)
+
+YR_2023 %>% rename(
+    `temp AMJJ`   = temp_summer,
+    `temp NDJF`   = temp_winter,
+    `precip AMJJ` = precip_summer,
+    `precip NDJF` = precip_winter,
+    NINO3.4 = nino34,
+    PDSI = PDSI,
+    `ongoing wars` = ongoing_wars
+    
+  ) %>% 
+
+# Then call datasummary
+datasummary(
+  formula = logyield + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
+  output = "figures/tables/summary_yield_YR.tex",
+  title = "Summary Statistics for grain yields data"
+)
+
+
+```
+
+
+```{r}
+est1 <- feols(logyield ~ Year + l(log(1+ongoing_wars),0:1) * l(nino34,0:1)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = DK ~ Year)
+
+est2 <- feols(logyield ~ Year + l(log(1+Deaths),0:3) + l(nino34,0:3)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=100))
+
+est3 <- feols(logyield ~ Year + l(log(1+Deaths),0:3)+ l(nino34,0:3)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = cluster ~ LocationGrain+Year)
+
+est4 <- feols(logyield ~ Year + l(log(1+Deaths),0:3) + l(nino34,0:3)+ i(decade)   | VarLocationGrain, data = YR_2023, panel.id = c("VarLocationGrain", "Year"), 
+              vcov = DK ~ Year)
+
+est5 <- feols(logyield ~ Year + l(log(1+Deaths),0:3) + l(nino34,0:3)+ i(decade)   | VarLocationGrain, data = YR_2023, panel.id = c("VarLocationGrain", "Year"), 
+              vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=100))
+
+est6 <- feols(logyield ~ Year + l(log(1+Deaths),0:3)+ l(nino34,0:3)+ i(decade)   | VarLocationGrain, data = YR_2023, panel.id = c("VarLocationGrain", "Year"), 
+              vcov = cluster ~ VarLocationGrain+Year)
+
+
+etable(est1, est2,est3, est4, est5, est6)
+
+
+```
+
+```{r}
+est1 <- feols(logyield ~ Year + l(nino34,0:3):i(Country)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = DK ~ Year)
+
+est2 <- feols(logyield ~ Year + l(log(1+Deaths),0:3) + l(nino34,0:3)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=100))
+
+est3 <- feols(logyield ~ Year + l(log(1+Deaths),0:3)+ l(nino34,0:3)+ i(decade)   | LocationGrain, data = TI_2023, panel.id = c("LocationGrain", "Year"), 
+              vcov = cluster ~ LocationGrain+Year)
+
+
+
+etable(est1, est2,est3)
+```
+
+
+
+## FE
+
+
+
+
+```{r}
+est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
+
+est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+
+
+est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+
+est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
+
+etable(est1, est2,est3,est4,
+       keep = c("nino"),
+       vcov = DK ~ Year,
+       
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"))
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "teleco_PDSI_10" = "scPDSI Teleconnection",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logyield" = "Log Grain Tithe")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       vcov = DK ~ Year,
+       dict = dict,
+              label = "tab:FE_ENSO_yieldPDSI",
+        title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Wheat and Rye Grain Harvests (Yields and Tithes).",
+       drop.section = "fixef",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                   "Type-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                   'Controls' = c("None", "Climate", "Conflict", "Climate + Conflict")),
+       file = "figures/tables/FE_ENSO_yieldPDSI.tex",
+       replace = TRUE)
+```
+
+```{r}
+est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
+
+est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+
+
+est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+
+est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
+
+etable(est1, est2,est3,est4,
+       keep = c("nino"),
+       vcov = DK ~ Year,
+       
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"))
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "teleco_precip_summer_10" = "AMJJ Precip. Teleconnection",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logyield" = "Log Grain Tithe")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       vcov = DK ~ Year,
+       dict = dict,
+              label = "tab:FE_ENSO_yieldPrecip",
+        title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Harvests (Rye and Wheat).",
+       drop.section = "fixef",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                   "Proxy-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
+                   'Controls' = c("None", "Climate", "Conflict", "Climate + Conflict")),
+       file = "figures/tables/FE_ENSO_yieldPrecip.tex",
+       replace = TRUE)
+```
+
+
+
+
+## Check SE
+
+```{r}
+est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
+est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter( Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "teleco_PDSI_10" = "scPDSI Teleco.",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logyield" = "Log Grain Yield")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict)
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       label = "tab:SEs_ENSO_yieldPDSI",
+       drop.section = "fixef",
+      title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Harvests (Rye and Barley) under different Standard Errors",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Proxy-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
+                                         "Two-way Clustered")),
+      notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level. Proxy refers to the type of harvest record (tithe, yield or yield ratio).",
+       file = "figures/tables/SEs_ENSO_yieldPDSI.tex",
+       replace = TRUE)
+```
+
+
+
+```{r}
+est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
+est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "teleco_precip_summer_10" = "AMJJ Precip. Teleco.",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logyield" = "Log Grain Yield")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict)
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       label = "tab:SEs_ENSO_WR",
+       drop.section = "fixef",
+      title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Harvests (Rye and Barley) under different Standard Errors",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Proxy-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
+                                         "Two-way Clustered")),
+      notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level. Proxy refers to the type of harvest record (tithe, yield or yield ratio).",
+       file = "figures/tables/SEs_ENSO_yieldPrecip.tex",
+       replace = TRUE)
+```
+
+
+
+## IRF WR
+
+
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "All regions" = NULL,
+  "Teleconnected" = quote(teleco_PDSI_10==1),
+  "Weakly affected" = quote(teleco_PDSI_10==0),
+  "Teleco w. controls" = quote(teleco_PDSI_10==1)
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) %>%
+    mutate(decade = as.factor(decade)) %>%
+    { if (!is.null(condition)) filter(., !!condition) else . }
+  
+  # Set controls
+  controls <- if (label == "Teleco. + Controls") {
+    c("decade", "PDSI", "temp_summer","temp_winter","ongoing_wars","Deaths","precip_summer","precip_winter")
+  } else {
+    c("decade")
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+```{r}
+irfs_full %>%
+  mutate(across(where(is.numeric), ~ round(. * 100, 1)))
+```
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, linetype = label)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  
+  # Y-axis
+  scale_y_continuous(
+    breaks = seq(-0.125, 0.05, by = 0.05),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+    
+  coord_cartesian(ylim = c(-0.125, 0.05)) + # Enforces hard visual cutoff
+
+  # Manual color/fill/linetype
+  scale_color_manual(values = c(
+    "All regions" = "black",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "steelblue",
+    "Teleco w. controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "All regions" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "skyblue",
+    "Teleco w. controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "All regions" = "solid",
+    "Teleconnected" = "dashed",
+    "Weakly affected" = "dashed",
+    "Teleco w. controls" = "solid"
+  )) +
+
+  # Labels
+  labs(
+    x = "Horizon (Years)",
+    y = "Wheat/Rye Harvest Variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  
+  # Theme
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  # Guide layout
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_ENSO_yield_WR_teleco.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+
+
+
+## IRF no WR
+
+
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "All regions" = NULL,
+  "Teleconnected" = quote(teleco_PDSI_10==1),
+  "Weakly affected" = quote(teleco_PDSI_10==0),
+  "Teleco w. controls" = quote(teleco_PDSI_10==1)
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- yield_2023 %>% filter(! Grain %in% c("Wheat","Rye")) %>%
+    mutate(decade = as.factor(decade)) %>%
+    { if (!is.null(condition)) filter(., !!condition) else . }
+  
+  # Set controls
+  controls <- if (label == "Teleco. + Controls") {
+    c("decade", "PDSI", "temp_summer","temp_winter","ongoing_wars","Deaths","precip_summer","precip_winter")
+  } else {
+    c("decade")
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, linetype = label)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  
+  # Y-axis
+  scale_y_continuous(
+    breaks = seq(-0.125, 0.05, by = 0.05),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+    
+  coord_cartesian(ylim = c(-0.125, 0.05)) + # Enforces hard visual cutoff
+
+  # Manual color/fill/linetype
+  scale_color_manual(values = c(
+    "All regions" = "black",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "steelblue",
+    "Teleco w. controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "All regions" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Weakly affected" = "skyblue",
+    "Teleco w. controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "All regions" = "solid",
+    "Teleconnected" = "dashed",
+    "Weakly affected" = "dashed",
+    "Teleco w. controls" = "solid"
+  )) +
+
+  # Labels
+  labs(
+    x = "Horizon (Years)",
+    y = "Other Grain Harvest Variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  
+  # Theme
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  # Guide layout
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_ENSO_yield_noWR_teleco.pdf", device = cairo_pdf, dpi = 300)
+```
+## IRF AMJJ P
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "Base (All regions)" = NULL,
+  "Teleconnected" = quote(teleco_precip_summer_10==1),
+  "Non-affected" = quote(teleco_precip_summer_10==0),
+  "Teleco. + Controls" = quote(teleco_precip_summer_10==1)
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) %>%
+    mutate(decade = as.factor(decade)) %>%
+    { if (!is.null(condition)) filter(., !!condition) else . }
+  
+  # Set controls
+  controls <- if (label == "Teleco. + Controls") {
+    c("decade", "PDSI", "temp_summer","temp_winter","ongoing_wars","Deaths","precip_summer","precip_winter")
+  } else {
+    c("decade")
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, linetype = label)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  
+  # Y-axis
+  scale_y_continuous(
+    breaks = seq(-0.2, 0.05, by = 0.05),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+    
+  #coord_cartesian(ylim = c(-0.1, 0.05)) + # Enforces hard visual cutoff
+
+  # Manual color/fill/linetype
+  scale_color_manual(values = c(
+    "Base (All regions)" = "black",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "steelblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base (All regions)" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "skyblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base (All regions)" = "solid",
+    "Teleconnected" = "dashed",
+    "Non-affected" = "dashed",
+    "Teleco. + Controls" = "solid"
+  )) +
+
+  # Labels
+  labs(
+    x = "Horizon (Years)",
+    y = "Grain Harvest Variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  
+  # Theme
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  # Guide layout
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_ENSO_yield_WR_telecoAMJJ_P.pdf", device = cairo_pdf, dpi = 300)
+```
+## IRF NDJF P
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "Base (All regions)" = NULL,
+  "Teleconnected" = quote(teleco_precip_winter_10==1),
+  "Non-affected" = quote(teleco_precip_winter_10==0),
+  "Teleco. + Controls" = quote(teleco_precip_winter_10==1)
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- yield_2023  %>%
+    mutate(decade = as.factor(decade)) %>%
+    { if (!is.null(condition)) filter(., !!condition) else . }
+  
+  # Set controls
+  controls <- if (label == "Teleco. + Controls") {
+    c("decade", "PDSI", "temp_summer","temp_winter","ongoing_wars","Deaths","precip_summer","precip_winter")
+  } else {
+    c("decade")
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, linetype = label)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  
+  # Y-axis
+  scale_y_continuous(
+    breaks = seq(-0.2, 0.05, by = 0.05),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+    
+  #coord_cartesian(ylim = c(-0.1, 0.05)) + # Enforces hard visual cutoff
+
+  # Manual color/fill/linetype
+  scale_color_manual(values = c(
+    "Base (All regions)" = "black",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "steelblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base (All regions)" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "skyblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base (All regions)" = "solid",
+    "Teleconnected" = "dashed",
+    "Non-affected" = "dashed",
+    "Teleco. + Controls" = "solid"
+  )) +
+
+  # Labels
+  labs(
+    x = "Horizon (Years)",
+    y = "Grain Harvest Variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  
+  # Theme
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  # Guide layout
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_ENSO_yield_telecoNDJF_P.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+## IRF NDJF T
+
+
+```{r}
+# Define models and labels
+teleco_conditions <- list(
+  "Base (All regions)" = NULL,
+  "Teleconnected" = quote(teleco_temp_winter_10==1),
+  "Non-affected" = quote(teleco_temp_winter_10==0),
+  "Teleco. + Controls" = quote(teleco_temp_winter_10==1)
+)
+
+irf_list <- list()
+
+# Loop over each model condition
+for (label in names(teleco_conditions)) {
+  condition <- teleco_conditions[[label]]
+  
+  df_subset <- yield_2023 %>%
+    mutate(decade = as.factor(decade)) %>%
+    { if (!is.null(condition)) filter(., !!condition) else . }
+  
+  # Set controls
+  controls <- if (label == "Teleco. + Controls") {
+    c("decade", "PDSI", "temp_summer","temp_winter","ongoing_wars","Deaths","precip_summer","precip_winter")
+  } else {
+    c("decade")
+  }
+  
+  results_panel <- lp_lin_panel(
+    data_set     = df_subset,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  irf_df <- data.frame(
+    label    = label,
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all IRFs
+irfs_full <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, linetype = label)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  
+  # Y-axis
+  scale_y_continuous(
+    breaks = seq(-1, 0.05, by = 0.1),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+
+  # Manual color/fill/linetype
+  scale_color_manual(values = c(
+    "Base (All regions)" = "black",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "steelblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base (All regions)" = "cornflowerblue",
+    "Teleconnected" = "firebrick",
+    "Non-affected" = "skyblue",
+    "Teleco. + Controls" = "orange"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base (All regions)" = "solid",
+    "Teleconnected" = "dashed",
+    "Non-affected" = "dashed",
+    "Teleco. + Controls" = "solid"
+  )) +
+
+  # Labels
+  labs(
+    x = "Horizon (Years)",
+    y = "Grain Harvest Variation",
+    color = "Group",
+    fill = "Group",
+    linetype = "Group"
+  ) +
+  
+  # Theme
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  
+    #coord_cartesian(ylim = c(-0.11, 0.05))  + # Enforces hard visual cutoff
+  
+  # Guide layout
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    fill = guide_legend(nrow = 2, byrow = TRUE),
+    linetype = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_ENSO_yield_telecoNDJF_T.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+
+## Check ninos
+
+```{r}
+nino_dict <- list(
+  "Nino1.2" = "nino12",
+  "Nino3" = "nino3",
+  "Nino3.4" = "nino34",
+  "Nino4" = "nino4"
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (nino_name in names(nino_dict)) {
+  
+  nino <- nino_dict[[nino_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = yield_2023 %>% filter(Grain %in% c("Wheat","Rye") & teleco_PDSI_10==1) %>%
+      mutate(decade = as.factor(decade)),
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = nino,
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = nino_name, # use the name here, not the list of variables
+    horizon  = 0:3,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r, fig.width=6, fig.height=6}
+ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = controls, fill = controls, linetype = controls)) +
+  # Point + error bars (confidence intervals)
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  position = position_dodge(width = 0.5),
+                  size = 1.0) +
+    # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # X-axis
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and fills
+  scale_color_manual(values = c(
+    "Nino3.4" = "black",      
+    "Nino1.2" = "#d95f02",   
+    "Nino3" = "steelblue",  
+    "Nino4" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Nino3.4" = "cornflowerblue",
+    "Nino1.2" = "#d95f02",
+    "Nino3" = "steelblue",
+    "Nino4" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Nino3.4" = "solid",
+    "Nino1.2" = "solid",
+    "Nino3" = "dashed",
+    "Nino4" = "dashed"
+  )) +
+  # Theme and labels
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response",
+    color = "Index",
+    fill = "Index",
+    linetype = "Index"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  ) +
+  # Y-axis as percentages
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  )
+
+# Save
+ggsave("figures/plots/IRF_ENSO_WR_ninocheck.pdf", device = cairo_pdf, dpi=300)
+
+```
+
+
+
+
+
+## Check subsamples
+
+```{r}
+WR_yield = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) %>%
+  mutate(decade = as.factor(decade))
+```
+
+
+```{r}
+set.seed(42)
+
+
+# Step 1: All leave-one-out subsamples
+locations <- unique(WR_yield$loc_id)
+sample_size <- length(locations) - 1
+location_combos <- combn(locations, sample_size, simplify = FALSE)
+
+# Step 2: Loop through each subsample and compute IRFs for the "Base" model
+irf_list <- list()
+
+for (i in seq_along(location_combos)) {
+  sampled_locations <- location_combos[[i]]
+  left_out <- setdiff(locations, sampled_locations)
+  
+  # Subset data
+  sub_data <- subset(WR_yield, loc_id %in% sampled_locations) %>%
+    mutate(Decade = as.factor(decade))
+  
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+  
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste("No", left_out),
+    horizon   = 0:3,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+  
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all
+irfs_subsamples <- bind_rows(irf_list)
+
+```
+
+```{r, fig.width=8, fig.height=8}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  color = "black",
+                  size = 0.8,
+                  position = position_dodge(width = 0.3)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.2, by = 0.05),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 6) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    panel.background = element_blank()
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_subsample_WR.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+```{r}
+# Define non-overlapping 20-year windows
+years <- sort(unique(WR_yield$Year))
+block_starts <- seq(min(years), max(years) - 20, by = 20)
+year_blocks <- lapply(block_starts, function(start_year) start_year:(start_year + 19))
+
+# Step 2: Loop through each subsample and compute IRFs
+irf_list <- list()
+
+for (i in seq_along(year_blocks)) {
+  excluded_years <- year_blocks[[i]]
+  keep_years <- setdiff(years, excluded_years)
+
+  # Subset data
+  sub_data <- subset(WR_yield, Year %in% keep_years) %>%
+    mutate(Decade = as.factor(decade))
+
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logyield",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 4
+  )
+
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste0("Drop ", min(excluded_years), "-", max(excluded_years)),
+    horizon   = 0:3,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all results
+irfs_subsamples <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=8, fig.height=8}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_pointrange(aes(ymin = irf_down, ymax = irf_up),
+                  color = "black",
+                  size = 0.8,
+                  position = position_dodge(width = 0.3)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.2, 0.1, by = 0.05),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 4) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    panel.background = element_blank()
+  )
+
+# Save the plot
+ggsave("figures/plots/IRF_subsample_20years_WR.pdf", width = 8, height = 8, device = cairo_pdf, dpi = 300)
+
+
+```
+
+
+
+
+
+## Permutation check
+
+```{r}
+set.seed(42)
+n_iter <- 500
+horizon_max <- 5
+shuffle_methods <- c("Entire Sample")
+
+# Function to shuffle nino34
+shuffle_nino34 <- function(data, method) {
+  if (method == "Entire Sample") {
+    data$nino34 <- sample(data$nino34)
+  } else if (method == "Within Location") {
+    data <- data %>%
+      group_by(loc_id) %>%
+      mutate(nino34 = sample(nino34)) %>%
+      ungroup()
+  } else {
+    stop("Invalid shuffle method")
+  }
+  return(data)
+}
+
+# Compute base IRF
+base_irf <- lp_lin_panel(
+  data_set     = WR_yield %>% mutate(Decade = as.factor(decade)),
+  endog_data   = "logyield",
+  cumul_mult   = TRUE,
+  shock        = "nino34",
+  diff_shock   = FALSE,
+  panel_model  = "within",
+  panel_effect = "individual",
+  c_exog_data  = "Decade",
+  robust_cov   = "vcovSCC",
+  confint      = 1.96,
+  hor          = horizon_max + 1
+)
+
+irf_base_df <- tibble(
+  horizon = 0:horizon_max,
+  irf_mean = as.numeric(base_irf$irf_panel_mean[1, ]),
+  irf_up   = as.numeric(base_irf$irf_panel_up[1, ]),
+  irf_down = as.numeric(base_irf$irf_panel_low[1, ]),
+  type     = "Base"
+)
+
+# --- Parallel bootstrap ---
+plan(multisession)  # use multicore / parallel workers
+
+boot_df <- future_map_dfr(
+  shuffle_methods,
+  function(method) {
+    future_map_dfr(1:n_iter, function(i) {
+      shuffled_data <- shuffle_nino34(TI_2023, method)
+      tryCatch({
+        res <- lp_lin_panel(
+          data_set     = shuffled_data %>% mutate(Decade = as.factor(decade)),
+          endog_data   = "logyield",
+          cumul_mult   = TRUE,
+          shock        = "nino34",
+          diff_shock   = FALSE,
+          panel_model  = "within",
+          panel_effect = "individual",
+          c_exog_data  = "Decade",
+          robust_cov   = "vcovSCC",
+          confint      = 1.96,
+          hor          = horizon_max + 1
+        )
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = as.numeric(res$irf_panel_mean[1, ]),
+          shuffle = method,
+          iter    = i
+        )
+      }, error = function(e) {
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = NA_real_,
+          shuffle = method,
+          iter    = i
+        )
+      })
+    }, .options = furrr_options(seed = TRUE))  # ensures parallel-safe RNG
+  },
+  .options = furrr_options(seed = TRUE)
+)
+
+# --- Summarize across locations (ignoring shuffle) ---
+summary_df <- boot_df %>%
+  group_by(horizon,shuffle) %>%
+  summarise(
+    irf_mean = mean(irf, na.rm = TRUE),
+    irf_low95  = quantile(irf, 0.025, na.rm = TRUE),
+    irf_high95 = quantile(irf, 0.975, na.rm = TRUE),
+    irf_low90  = quantile(irf, 0.05, na.rm = TRUE),
+    irf_high90 = quantile(irf, 0.95, na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+```
+
+```{r, fig.width=6, fig.height=5}
+
+# --- Plot with 95% (outer) and 90% (inner) CI bands ---
+ggplot() +
+  geom_line(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 1.1) +
+  geom_point(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 2) +
+  # 95% CI ribbon (lighter)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low95, ymax = irf_high95),
+              fill = "cornflowerblue", alpha = 0.15) +
+  # 90% CI ribbon (darker, inside 95%)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low90, ymax = irf_high90),
+              fill = "cornflowerblue", alpha = 0.25) +
+  geom_line(data = summary_df, aes(x = horizon, y = irf_mean),
+            color = "cornflowerblue", size = 1.1, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_x_continuous(breaks = 0:horizon_max) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  theme(legend.position = "none")
+
+ggsave("figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+
+```
+
+
+
+
+
+
+
+# 3. Fish prices
+
+
+
+```{r}
+fishprice <- read.csv('processed data/fishprice_enso.csv') %>% 
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  dplyr::select(LocationSpecies,Year, Decade, everything()) 
+```
+
+
+```{r}
+fishprice %>% rename(
+    `temp AMJJ`   = temp_summer,
+    `temp NDJF`   = temp_winter,
+    `precip AMJJ` = precip_summer,
+    `precip NDJF` = precip_winter,
+    NINO3.4 = nino34,
+    PDSI = PDSI,
+    `ongoing wars` = ongoing_wars
+    
+  ) %>% 
+
+# Then call datasummary
+datasummary(
+  formula = Price + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
+  output = "figures/tables/summary_fishprice.tex",
+  title = "Summary Statistics for fish prices data"
+)
+
+```
+
+
+
+
+```{r}
+est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL | Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est3 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est4 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+
+
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+vcov = DK~Year,
+fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+drop.section = "fixef",
+extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                  "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")))
+
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logprice" = "Log Fish Price")
+  
+
+etable(est1, est2, est3,est4,
+       vcov = DK ~ Year,
+      keep = "nino",
+    label = "tab:fishprice_FE",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       drop.section = "fixef",                              
+    title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Fish Prices",
+      extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                  "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")),
+       file = "figures/tables/ENSO_fishprice_main.tex",
+       replace = TRUE)
+```
+
+
+
+
+## Check SEs
+
+```{r}
+est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = cluster~ Location+Year)
+
+dict = c(
+  "nino34" = "nino3.4 T",
+  "l(nino34, 1)" = "nino3.4 T-1",
+  "l(nino34, 2)" = "nino3.4 T-2",
+  "l(nino34, 3)" = "nino3.4 T-3",
+  "ongoing_wars" = "Ongoing Wars",
+  "log(1+Deaths)" = "Log(1+Deaths)",
+  "PDSI" = "PDSI",
+  "temp_summer" = "Summer Temp",
+  "temp_winter" = "Winter Temp",
+  "precip_summer" = "Summer Precip",
+  "precip_winter" = "Winter Precip",
+  "NAO_cal" = "NAO",
+  "JSL" = "JSL",
+  "logprice" = "Log Fish Price")
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict)
+
+etable(est1, est2, est3,est4,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       label = "tab:SEs_fishprice",
+       drop.section = "fixef",
+        title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Fish Prices under different Standard Errors",
+       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                  "Standard Errors" = c("Driscoll Kray (L=4)", "Conley (200km)", "Conley (500km)",
+                                        "Two-way Clustered")),
+       file = "figures/tables/SEs_ENSO_fishprice.tex",
+       notes = "\\small Two-way clustered standard errors at the Location-Species and Year level.",
+       replace = TRUE)
+```
+
+
+
+
+## IRF
+
+
+```{r}
+control_dict <- list(
+  "Base" = "Decade",
+  "Climate" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL"),
+  "Conflict" = c("Decade", "ongoing_wars", "Deaths"),
+  "Climate + Conflict" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", 
+                           "NAO_cal", "JSL", "ongoing_wars", "Deaths")
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (control_name in names(control_dict)) {
+  
+  controls <- control_dict[[control_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = fishprice %>% mutate(Decade = as.factor(Decade)),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = controls,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = control_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r}
+#round numeric to 2 float *100 and display
+irfs_full %>%
+  mutate(across(where(is.numeric), ~ round(. * 100, 2)))
+```
+
+
+
+```{r, fig.width=6, fig.height=5}
+ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
+  # RIBBON ONLY FOR "None"
+  geom_ribbon(
+    data = filter(irfs_full, controls == "Base"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = controls), linewidth = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Base" = "black",      
+    "Climate" = "#d95f02",   
+    "Conflict" = "steelblue",  
+    "Climate + Conflict" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Base" = "cornflowerblue",
+    "Climate" = "#d95f02",
+    "Conflict" = "steelblue",
+    "Climate + Conflict" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Base" = "solid",
+    "Climate" = "solid",
+    "Conflict" = "dashed",
+    "Climate + Conflict" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Fish Price variation",
+    color = "Controls",
+    fill = "Controls",
+    linetype = "Controls"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  ) + guides(
+    color = guide_legend(nrow = 2, byrow = TRUE),
+    shape = guide_legend(nrow = 2, byrow = TRUE)
+  ) 
+
+# Save
+ggsave("figures/plots/IRF_ENSO_fishprice.pdf", device = cairo_pdf, dpi=300)
+```
+
+## IRF fish species
+
+```{r}
+species_dict <- list(
+  "All" = c("Herring","Cod"),
+  "Herring" = c("Herring"),
+  "Cod" = c("Cod")
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (species_name in names(species_dict)) {
+  
+  species <- species_dict[[species_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = fishprice %>% mutate(Decade = as.factor(Decade)) %>% 
+      filter(Species %in% species_dict[[species_name]]),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    species = species_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r}
+#round numeric to 2 float *100 and display
+irfs_full %>%
+  mutate(across(where(is.numeric), ~ round(. * 100, 2)))
+```
+
+
+```{r, fig.height = 5, fig.width = 6}
+ggplot(irfs_full, aes(x = horizon, color = species, fill = species)) +
+  # RIBBON ONLY FOR "Herring" and "Cod"
+  geom_ribbon(
+    data = filter(irfs_full, species %in% c("All")),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = species), size = 1.3) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "All" = "black",      
+    "Herring" = "#d95f02",   
+    "Cod" = "steelblue"
+  )) +
+  scale_fill_manual(values = c(
+    "All" = "cornflowerblue",  # doesn't matter since no ribbon used
+    "Herring" = "#d95f02",
+    "Cod" = "steelblue"
+  )) +
+  scale_linetype_manual(values = c(
+    "All" = "solid",
+    "Herring" = "dashed",
+    "Cod" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Fish Price variation",
+    color = "Species",
+    fill = "Species",
+    linetype = "Species"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  guides(
+    color = guide_legend(nrow = 1, byrow = TRUE),
+    shape = guide_legend(nrow = 1, byrow = TRUE)
+  )
+
+ggsave("figures/plots/IRF_ENSO_fishprice_species.pdf", device = cairo_pdf, dpi = 300)
+
+```
+
+
+
+
+## Check ninos
+
+
+```{r}
+nino_dict <- list(
+  "Nino1.2" = "nino12",
+  "Nino3" = "nino3",
+  "Nino3.4" = "nino34",
+  "Nino4" = "nino4"
+)
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop properly over names and controls
+for (nino_name in names(nino_dict)) {
+  
+  nino <- nino_dict[[nino_name]] # the actual list of controls
+  
+  results_panel <- lp_lin_panel(
+    data_set     = fishprice %>% mutate(Decade = as.factor(Decade)),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = nino,
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Build tidy data.frame
+  irf_df <- data.frame(
+    controls = nino_name, # use the name here, not the list of variables
+    horizon  = 0:10,
+    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine all into one data.frame
+irfs_full <- bind_rows(irf_list)
+```
+
+
+```{r, fig.height = 6, fig.width = 6}
+ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
+  # RIBBON ONLY FOR "None"
+  geom_ribbon(
+    data = filter(irfs_full, controls == "Nino3.4"),
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.15,
+    color = NA
+  ) +
+  # LINES FOR ALL
+  geom_line(aes(y = irf_mean, linetype = controls), size = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_full$horizon),
+    labels = 0:max(irfs_full$horizon)
+  ) +
+  # Colors and linetypes
+  scale_color_manual(values = c(
+    "Nino3.4" = "black",      
+    "Nino1.2" = "#d95f02",   
+    "Nino3" = "steelblue",  
+    "Nino4" = "orange"
+  )) +
+  scale_fill_manual(values = c(
+    "Nino3.4" = "cornflowerblue",
+    "Nino1.2" = "#d95f02",
+    "Nino3" = "steelblue",
+    "Nino4" = "coral"
+  )) +
+  scale_linetype_manual(values = c(
+    "Nino3.4" = "solid",
+    "Nino1.2" = "solid",
+    "Nino3" = "dashed",
+    "Nino4" = "dashed"
+  )) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response",
+    color = "Index",
+    fill = "Index",
+    linetype = "Index"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  ) +
+  #make yaxis ticks every 0.025 and make it percentage
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  ) 
+
+# Save
+ggsave("figures/plots/IRF_ENSO_fishprice_ninocheck.pdf", device = cairo_pdf, dpi=300)
+```
+
+
+
+
+## Check subsamples
+
+```{r}
+set.seed(42)
+
+# Step 1: All leave-one-out subsamples
+locations <- unique(fishprice$Location)
+sample_size <- length(locations) - 1
+location_combos <- combn(locations, sample_size, simplify = FALSE)
+
+# Step 2: Loop through each subsample and compute IRFs for the "Base" model
+irf_list <- list()
+
+for (i in seq_along(location_combos)) {
+  sampled_locations <- location_combos[[i]]
+  left_out <- setdiff(locations, sampled_locations)
+  
+  # Subset data
+  sub_data <- subset(fishprice, Location %in% sampled_locations) %>%
+    mutate(Decade = as.factor(Decade))
+  
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste("No", left_out),
+    horizon   = 0:10,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+  
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all
+irfs_subsamples <- bind_rows(irf_list)
+
+```
+
+```{r, fig.width=12, fig.height=6}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "gray70", alpha = 0.3) +
+  geom_line(size = 1, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 4) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+# Save plot
+ggsave("figures/plots/IRF_subsample_fishprice.pdf", width = 12, height = 6, device = cairo_pdf, dpi = 300)
+```
+
+
+```{r}
+# Define non-overlapping 20-year windows
+years <- sort(unique(fishprice$Year))
+block_starts <- seq(min(years), max(years) - 20, by = 20)
+year_blocks <- lapply(block_starts, function(start_year) start_year:(start_year + 19))
+
+# Step 2: Loop through each subsample and compute IRFs
+irf_list <- list()
+
+for (i in seq_along(year_blocks)) {
+  excluded_years <- year_blocks[[i]]
+  keep_years <- setdiff(years, excluded_years)
+
+  # Subset data
+  sub_data <- subset(fishprice, Year %in% keep_years) %>%
+    mutate(Decade = as.factor(Decade))
+
+  # Estimate IRF
+  results_panel <- lp_lin_panel(
+    data_set     = sub_data,
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+
+  # Store results
+  irf_df <- data.frame(
+    subsample = paste0("Drop ", min(excluded_years), "-", max(excluded_years)),
+    horizon   = 0:10,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ])
+  )
+
+  irf_list[[i]] <- irf_df
+}
+
+# Combine all results
+irfs_subsamples <- bind_rows(irf_list)
+```
+
+
+
+```{r, fig.width=12, fig.height=12}
+ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "gray70", alpha = 0.3) +
+  geom_line(size = 1, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  scale_x_continuous(
+    breaks = 0:max(irfs_subsamples$horizon),
+    labels = 0:max(irfs_subsamples$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = 0.1)
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  facet_wrap(~ subsample, ncol = 4) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+# Save the plot
+ggsave("figures/plots/IRF_subsample_20years_fishprice.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+```
+
+
+
+
+
+## Permutation check
+
+
+
+```{r}
+n_iter <- 500
+horizon_max <- 10
+shuffle_methods <- c("Entire Sample")
+set.seed(42)
+
+# Function to shuffle nino34
+shuffle_nino34 <- function(data, method) {
+  if (method == "Entire Sample") {
+    data$nino34 <- sample(data$nino34)
+  } else if (method == "Within Location") {
+    data <- data %>%
+      group_by(Location) %>%
+      mutate(nino34 = sample(nino34)) %>%
+      ungroup()
+  } else {
+    stop("Invalid shuffle method")
+  }
+  return(data)
+}
+
+# Compute base IRF
+base_irf <- lp_lin_panel(
+  data_set     = fishprice %>% mutate(Decade = as.factor(Decade)),
+  endog_data   = "logprice",
+  cumul_mult   = TRUE,
+  shock        = "nino34",
+  diff_shock   = FALSE,
+  panel_model  = "within",
+  panel_effect = "individual",
+  c_exog_data  = "Decade",
+  robust_cov   = "vcovSCC",
+  confint      = 1.96,
+  hor          = horizon_max + 1
+)
+
+irf_base_df <- tibble(
+  horizon = 0:horizon_max,
+  irf_mean = as.numeric(base_irf$irf_panel_mean[1, ]),
+  irf_up   = as.numeric(base_irf$irf_panel_up[1, ]),
+  irf_down = as.numeric(base_irf$irf_panel_low[1, ]),
+  type     = "Base"
+)
+
+# --- Parallel bootstrap ---
+plan(multisession)  # use multicore / parallel workers
+
+boot_df <- future_map_dfr(
+  shuffle_methods,
+  function(method) {
+    future_map_dfr(1:n_iter, function(i) {
+      shuffled_data <- shuffle_nino34(fishprice, method)
+      tryCatch({
+        res <- lp_lin_panel(
+          data_set     = shuffled_data %>% mutate(Decade = as.factor(Decade)),
+          endog_data   = "logprice",
+          cumul_mult   = TRUE,
+          shock        = "nino34",
+          diff_shock   = FALSE,
+          panel_model  = "within",
+          panel_effect = "individual",
+          c_exog_data  = "Decade",
+          robust_cov   = "vcovSCC",
+          confint      = 1.96,
+          hor          = horizon_max + 1
+        )
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = as.numeric(res$irf_panel_mean[1, ]),
+          shuffle = method,
+          iter    = i
+        )
+      }, error = function(e) {
+        tibble(
+          horizon = 0:horizon_max,
+          irf     = NA_real_,
+          shuffle = method,
+          iter    = i
+        )
+      })
+    }, .options = furrr_options(seed = TRUE))  # ensures parallel-safe RNG
+  },
+  .options = furrr_options(seed = TRUE)
+)
+
+# --- Summarize across locations (ignoring shuffle) ---
+summary_df <- boot_df %>%
+  group_by(horizon,shuffle) %>%
+  summarise(
+    irf_mean = mean(irf, na.rm = TRUE),
+    irf_low95  = quantile(irf, 0.025, na.rm = TRUE),
+    irf_high95 = quantile(irf, 0.975, na.rm = TRUE),
+    irf_low90  = quantile(irf, 0.05, na.rm = TRUE),
+    irf_high90 = quantile(irf, 0.95, na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+
+```
+
+```{r, fig.width=6, fig.height=5}
+# --- Plot with 95% (outer) and 90% (inner) CI bands ---
+ggplot() +
+  geom_line(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 1.1) +
+  geom_point(data = irf_base_df, aes(x = horizon, y = irf_mean), color = "black", size = 2) +
+  # 95% CI ribbon (lighter)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low95, ymax = irf_high95),
+              fill = "cornflowerblue", alpha = 0.15) +
+  # 90% CI ribbon (darker, inside 95%)
+  geom_ribbon(data = summary_df, aes(x = horizon, ymin = irf_low90, ymax = irf_high90),
+              fill = "cornflowerblue", alpha = 0.25) +
+  geom_line(data = summary_df, aes(x = horizon, y = irf_mean),
+            color = "cornflowerblue", size = 1.1, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_x_continuous(breaks = 0:horizon_max) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response"
+  ) +
+  theme(legend.position = "none")
+
+ggsave("figures/plots/IRF_ENSO_fishprice_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+```
+
+
+
+
+
+
+
+# 4. Check reverse causality
+
+
+```{r}
+ljunqgvist_avg <- data %>%
+  group_by(Year) %>%
+  summarise(
+    avg_price = mean(logprice, na.rm = TRUE),
+    avg_nino34 = mean(nino34, na.rm = TRUE)
+  ) 
+
+#grnger causality test
+grangertest(avg_nino34 ~ avg_price, data = ljunqgvist_avg, order = 10)
+grangertest(avg_price ~ avg_nino34, data = ljunqgvist_avg, order = 1)
+
+
+```
+
+```{r}
+ljunqgvist_avg_yield <- YR_2023 %>%
+  filter(teleco_PDSI_10==1 & Grain %in% c("Wheat","Rye")) %>% 
+  group_by(Year) %>%
+  summarise(
+    avg_yield = mean(logyield, na.rm = TRUE),
+    avg_nino34 = mean(nino34, na.rm = TRUE)
+  ) 
+
+#grnger causality test
+grangertest(avg_nino34 ~ avg_yield, data = ljunqgvist_avg_yield, order = 10)
+grangertest(avg_yield ~ avg_nino34, data = ljunqgvist_avg_yield, order = 1)
+
+
+```
+
+```{r}
+
+avg_fishprice <- fishprice %>%
+  group_by(Location, Year) %>%
+  summarise(avg_price = mean(logprice, na.rm = TRUE), .groups = "drop",
+             avg_nino34 = mean(nino34, na.rm = TRUE))
+
+grangertest(avg_nino34 ~ avg_price, data = avg_fishprice, order = 10)
+grangertest(avg_price ~ avg_nino34, data = avg_fishprice, order = 1)
+
+
+
+```
+
+
+
+```{r}
+# Run Granger tests and collect p-values
+results <- tibble::tibble(
+  Variable = c("Grain Price (all regions)", "Grain Price (all regions)",
+               "Harvests (Teleconnected)", "Harvests (Teleconnected)",
+               "Fish Price (all locations)", "Fish Price (all locations)"),
+Direction = c(
+  "Grain Price → NINO3.4",    
+  "NINO3.4 → Grain Price",     
+  "Harvest → NINO3.4",          
+  "NINO3.4 → Harvest",          
+  "Fish Price → NINO3.4",     
+  "NINO3.4 → Fish Price"      
+),
+  p_value = c(
+    grangertest(avg_nino34 ~ avg_price, data = ljunqgvist_avg, order = 10)$`Pr(>F)`[2],
+    grangertest(avg_price ~ avg_nino34, data = ljunqgvist_avg, order = 1)$`Pr(>F)`[2],
+    grangertest(avg_nino34 ~ avg_yield, data = ljunqgvist_avg_yield, order = 10)$`Pr(>F)`[2],
+    grangertest(avg_yield ~ avg_nino34, data = ljunqgvist_avg_yield, order = 1)$`Pr(>F)`[2],
+    grangertest(avg_nino34 ~ avg_price, data = avg_fishprice, order = 10)$`Pr(>F)`[2],
+    grangertest(avg_price ~ avg_nino34, data = avg_fishprice, order = 1)$`Pr(>F)`[2]
+  )
+)
+
+# Round for presentation
+results$p_value <- round(results$p_value, 3)
+
+# Create LaTeX table
+latex_table <- 
+kable(
+  results,
+  format = "latex",
+  booktabs = TRUE,
+  col.names = c("Variable", "Direction", "p-value"),
+  caption = "Granger causality tests for the relationship between ENSO (NINO3.4), prices and yields.",
+  label = "granger_enso"  # <- this sets the \label{tab:granger_enso_agriculture}
+)
+
+# Save the LaTeX table
+writeLines(latex_table, "figures/tables/granger_enso.tex")
+```
+
+
+# 5. Fish catches
+
+```{r}
+fishcatch <- read.csv('processed data/fishcatch_enso.csv') %>% 
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  dplyr::select(TypeLocation,Year, Decade, everything()) # %>% 
+  #filter(Catch > 0) 
+```
+
+```{r}
+est1 <- feols(logcatch ~  l(nino34,0:1) + i(Decade) |TypeLocation , data = fishcatch,
+              panel.id = c("TypeLocation", "Year"), vcov = cluster ~ TypeLocation + Year, 
+              notes = F)
+est2 <- feols(logcatch ~   l(nino34,0:1) , data = fishcatch,
+              panel.id = c("TypeLocation", "Year"), vcov = cluster ~ TypeLocation+Year,
+              notes=F)
+
+etable(est1, est2,
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict)
+
+etable(est1,est2,
+       keep = "nino",
+       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       dict = dict,
+       label = "tab:FE_catch",
+       drop.section = "fixef",
+        title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Fish Catches under different Standard Errors",
+       extralines = list("Decade Fixed Effects" = c("Yes","No"),
+                   "Location-Species Fixed Effects" = c("Yes","No"),
+                  "Standard Errors" = c("Cluster by Location-Species & Year")),
+       file = "figures/tables/FE_ENSO_fishcatch.tex",
+       replace = TRUE)
+```
+
+## IRF
+
+```{r}
+# Define list of shocks
+shock_vars <- c("NAO_cal", "nino34")
+shock_labels <- c("NAO_cal" = "NAO", "nino34" = "NINO3.4")
+
+# Initialize empty list to collect IRFs
+irf_list <- list()
+
+# Loop over shocks
+for (shock in shock_vars) {
+  
+  results_panel <- lp_lin_panel(
+    data_set     = fishcatch %>% mutate(Decade = as.factor(Decade)),
+    endog_data   = "logcatch",
+    cumul_mult   = TRUE,
+    shock        = shock,
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = NULL,
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = 11
+  )
+  
+  # Create tidy data frame
+  irf_df <- data.frame(
+    shock     = shock_labels[[shock]],  # use human-friendly label
+    horizon   = 0:10,
+    irf_mean  = as.numeric(results_panel$irf_panel_mean[1, ]),
+    irf_up    = as.numeric(results_panel$irf_panel_up[1, ]),
+    irf_down  = as.numeric(results_panel$irf_panel_low[1, ]),
+    stringsAsFactors = FALSE
+  )
+  
+  irf_list[[length(irf_list) + 1]] <- irf_df
+}
+
+# Combine both IRFs
+irfs_dual <- bind_rows(irf_list)
+```
+
+
+```{r, fig.height=6, fig.width=6}
+ggplot(irfs_dual, aes(x = horizon, color = shock, fill = shock)) +
+  # Ribbons for confidence intervals
+  geom_ribbon(
+    aes(ymin = irf_down, ymax = irf_up),
+    alpha = 0.2,
+    color = NA
+  ) +
+  # Lines for point estimates
+  geom_line(aes(y = irf_mean, linetype = shock), size = 1.2) +
+  # Zero line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
+  # Axes
+  scale_x_continuous(
+    breaks = 0:max(irfs_dual$horizon),
+    labels = 0:max(irfs_dual$horizon)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.1, 0.1, by = 0.025),
+    labels = scales::percent_format(accuracy = .1)
+  ) +
+  # Manual colors and line styles
+  scale_color_manual(values = c("NAO" = "#d95f02", "NINO3.4" = "#1b9e77")) +
+  scale_fill_manual(values = c("NAO" = "#d95f02", "NINO3.4" = "#1b9e77")) +
+  scale_linetype_manual(values = c("NAO" = "solid", "NINO3.4" = "dashed")) +
+  # Labels and theme
+  labs(
+    x = "Horizon (Years)",
+    y = "Impulse Response",
+    color = "Shock",
+    fill = "Shock",
+    linetype = "Shock"
+  ) +
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  ) +
+  guides(
+    color = guide_legend(nrow = 1, byrow = TRUE),
+    fill  = guide_legend(nrow = 1, byrow = TRUE),
+    linetype = guide_legend(nrow = 1, byrow = TRUE)
+  )
+
+
+ggsave("figures/plots/IRF_catches.pdf", device = cairo_pdf, dpi = 300)
+
+```
+
+
+
