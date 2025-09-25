@@ -2,9 +2,6 @@
 
 This repository contains the data and code used to generate the figures and results in the manuscript: **"El Niño amplified food security in Early Modern Europe"** (Esmaili et al., 2025, in review).
 
-## Overview
-
-This research investigates the relationship between El Niño-Southern Oscillation (ENSO) events and food security in Early Modern Europe, analyzing historical data to understand how climate variability affected agricultural outcomes and societal well-being.
 
 ## Repository Structure
 
