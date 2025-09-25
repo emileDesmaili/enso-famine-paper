@@ -71,9 +71,7 @@ If you use this code or data in your research, please cite:
 
 This repository is maintained for research reproducibility. For questions or issues, please open an issue or contact the corresponding author.
 
-## License
 
-MIT License
 
 ## Contact
 
