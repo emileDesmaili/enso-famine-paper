@@ -14,7 +14,6 @@ suppressPackageStartupMessages(suppressWarnings(library(tidyverse)))
 suppressPackageStartupMessages(suppressWarnings(library(ggplot2)))
 suppressPackageStartupMessages(suppressWarnings(library(magrittr)))
 suppressPackageStartupMessages(suppressWarnings(library(lme4)))
-suppressPackageStartupMessages(suppressWarnings(library(brms)))
 suppressPackageStartupMessages(suppressWarnings(library(plm)))
 suppressPackageStartupMessages(suppressWarnings(library(lmtest)))
 suppressPackageStartupMessages(suppressWarnings(library(car)))
@@ -27,7 +26,6 @@ suppressPackageStartupMessages(suppressWarnings(library(parameters)))
 suppressPackageStartupMessages(suppressWarnings(library(see)))
 suppressPackageStartupMessages(suppressWarnings(library(caret)))
 suppressPackageStartupMessages(suppressWarnings(library(remotes)))
-suppressPackageStartupMessages(suppressWarnings(library(bayesplot)))
 suppressPackageStartupMessages(suppressWarnings(library(performance)))
 suppressPackageStartupMessages(suppressWarnings(library(easystats)))
 suppressPackageStartupMessages(suppressWarnings(library(future)))
@@ -37,8 +35,6 @@ suppressPackageStartupMessages(suppressWarnings(library(ggrepel)))
 suppressPackageStartupMessages(suppressWarnings(library(ggdist) ))     
 suppressPackageStartupMessages(suppressWarnings(library(scales)))      
 suppressPackageStartupMessages(suppressWarnings(library(patchwork)))
-suppressPackageStartupMessages(suppressWarnings(library(ggridges)))
-suppressPackageStartupMessages(suppressWarnings(library(tidygeocoder)))
 suppressPackageStartupMessages(suppressWarnings(library(maps)))
 suppressPackageStartupMessages(suppressWarnings(library(sf)))
 suppressPackageStartupMessages(suppressWarnings(library(gridExtra)))
@@ -47,10 +43,6 @@ suppressPackageStartupMessages(suppressWarnings(library(pscl)))
 suppressPackageStartupMessages(suppressWarnings(library(lme4)))
 suppressPackageStartupMessages(suppressWarnings(library(interactions)))
 suppressPackageStartupMessages(suppressWarnings(library(forecast)))
-suppressPackageStartupMessages(suppressWarnings(library(rstan)))
-suppressPackageStartupMessages(suppressWarnings(library(panelvar)))
-suppressPackageStartupMessages(suppressWarnings(library(mlVAR)))
-suppressPackageStartupMessages(suppressWarnings(library(vars)))
 suppressPackageStartupMessages(suppressWarnings(library(viridis)))
 suppressPackageStartupMessages(suppressWarnings(library(mgcv)))
 suppressPackageStartupMessages(suppressWarnings(library(mvgam)))
@@ -59,7 +51,6 @@ suppressPackageStartupMessages(suppressWarnings(library(ivreg)))
 suppressPackageStartupMessages(suppressWarnings(library(rms)))
 suppressPackageStartupMessages(suppressWarnings(library(ggspatial)))
 suppressPackageStartupMessages(suppressWarnings(library(ggpubr)))
-suppressPackageStartupMessages(suppressWarnings(library(depmixS4)))
 suppressPackageStartupMessages(suppressWarnings(library(ltm)))
 suppressPackageStartupMessages(suppressWarnings(library(lpirfs)))
 suppressPackageStartupMessages(suppressWarnings(library(pglm)))
@@ -77,61 +68,11 @@ suppressPackageStartupMessages(suppressWarnings(library(ggtext)))
 # Data
 ```{r}
 
-data <- read.csv("processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10)
+data <- read.csv("../processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10) %>% 
+  #sort years within region
+  arrange(Region, Year) 
 
 pdata = fixest::panel(data, panel = ~ Region+Year)
-
-
-data_grouped <- data %>%
-  group_by(Year) %>%
-  summarise(
-    Famine = sum(Famine, na.rm = TRUE),  # Sum famines across locations
-    Famine1Y = sum(Famine1Y, na.rm = TRUE),  # Sum famines across locations
-    Famine2Y = sum(Famine2Y, na.rm = TRUE),  # Sum famines across locations
-    Famine3Y = sum(Famine3Y, na.rm = TRUE),  # Sum famines across locations
-    Famine_start = sum(Famine_start, na.rm = TRUE),  # Sum famines across locations
-    nino34 = mean(nino34, na.rm = TRUE),
-    nino3 = mean(nino3, na.rm = TRUE),
-    nino4 = mean(nino4, na.rm = TRUE),
-    nino12 = mean(nino12, na.rm = TRUE),
-    ElNino = mean(ElNino, na.rm = TRUE),
-    LaNina = mean(LaNina, na.rm = TRUE),
-    Deaths = mean(Deaths, na.rm = TRUE),
-    Death_ratio = mean(Death_ratio, na.rm=TRUE),
-    ongoing_wars = mean(ongoing_wars,na.rm=TRUE),
-    NAO_cal = mean(NAO_cal, na.rm=TRUE),
-    JSL = mean(JSL, na.rm=TRUE),
-    temp_summer = mean(temp_summer, na.rm=TRUE),
-    temp_winter = mean(temp_winter, na.rm=TRUE),
-    precip_summer = mean(precip_summer, na.rm=TRUE),
-    precip_winter = mean(precip_winter, na.rm=TRUE),
-    temp_summer_europe = mean(temp_summer_europe, na.rm=TRUE),
-    temp_winter_europe = mean(temp_winter_europe, na.rm=TRUE),
-    precip_summer_europe = mean(precip_summer_europe, na.rm=TRUE),
-    precip_winter_europe = mean(precip_winter_europe, na.rm=TRUE),
-    PDSI = mean(PDSI, na.rm=TRUE),
-    PDSI_europe = mean(PDSI_europe, na.rm=TRUE),
-    
-  )
-
-data_lag = data %>% 
-  group_by(Region) %>% 
-  mutate(nino34_lag = dplyr::lag(nino34, 1),
-         nino3_lag = dplyr::lag(nino3, 1),
-         nino4_lag = dplyr::lag(nino4, 1),
-         nino12_lag = dplyr::lag(nino12, 1),
-         ElNino_lag = dplyr::lag(ElNino, 1),
-         LaNina_lag = dplyr::lag(LaNina, 1),
-         Deaths_lag = dplyr::lag(Deaths, 1),
-         Famine_lag = dplyr::lag(Famine, 1),
-         Death_ratio_lag = dplyr::lag(Death_ratio, 1),
-         ongoing_wars_lag = dplyr::lag(ongoing_wars, 1),
-         PDSI_lag = dplyr::lag(PDSI, 1),
-         PDSI_europe_lag = dplyr::lag(PDSI_europe, 1),
-         NAO_lag = dplyr::lag(NAO_cal, 1),
-         JSL_lag = dplyr::lag(JSL, 1)
-         ) %>% 
-  ungroup()
 
 
 ```
@@ -167,37 +108,16 @@ famine_summary <- famine_periods %>%
     avg_Death_ratio = mean(Death_ratio, na.rm = TRUE),
     avg_JSL = mean(JSL, na.rm = TRUE),
     avg_NAO_cal = mean(NAO_cal, na.rm = TRUE),
+    n_first = pmax(floor(duration / 2), 1),      
+    max_nino_first_n = ifelse(n_first > 0,
+                              max(head(nino34, n_first), na.rm = TRUE),
+                              NA_real_),
+    avg_nino_first_n = ifelse(n_first > 0,
+                              mean(head(nino34, n_first), na.rm = TRUE),
+                              NA_real_),
     avg_nino34 = mean(nino34, na.rm = TRUE),
-    
-    max_nino34 = max(nino34, na.rm = TRUE),
-    max_PDSI = max(PDSI, na.rm = TRUE),
-    max_PDSI_europe = max(PDSI_europe, na.rm = TRUE),
-    max_temp_summer = max(temp_summer, na.rm = TRUE),
-    max_temp_winter = max(temp_winter, na.rm = TRUE),
-    max_precip_summer = max(precip_summer, na.rm = TRUE),
-    max_precip_winter = max(precip_winter, na.rm = TRUE),
-    max_temp_summer_europe = max(temp_summer_europe, na.rm = TRUE),
-    max_temp_winter_europe = max(temp_winter_europe, na.rm = TRUE),
-    max_precip_summer_europe = max(precip_summer_europe, na.rm = TRUE),
-    max_precip_winter_europe = max(precip_winter_europe, na.rm = TRUE),
-    max_ongoing_wars = max(ongoing_wars, na.rm = TRUE),
-    max_Deaths = max(Deaths, na.rm = TRUE),
-    max_Death_ratio = max(Death_ratio, na.rm = TRUE),
-    max_JSL = max(JSL, na.rm = TRUE),
-    max_NAO_cal = max(NAO_cal, na.rm = TRUE),
-    min_nino34 = min(nino34, na.rm = TRUE),
     avg_2y_nino = mean(nino34[1:2], na.rm = TRUE),
     max_2y_nino = max(nino34[1:2], na.rm = TRUE),
-    min_2y_nino = min(nino34[1:2], na.rm = TRUE),
-    avg_2y_PDSI = mean(PDSI[1:2], na.rm = TRUE),
-    max_2y_PDSI = max(PDSI[1:2], na.rm = TRUE),
-    min_2y_PDSI = min(PDSI[1:2], na.rm = TRUE),
-    avg_2y_NAO = mean(NAO_cal[1:2], na.rm = TRUE),
-    max_2y_NAO = max(NAO_cal[1:2], na.rm = TRUE),
-    min_2y_NAO = min(NAO_cal[1:2], na.rm = TRUE),
-    avg_2y_JSL = mean(JSL[1:2], na.rm = TRUE),
-    max_2y_JSL = max(JSL[1:2], na.rm = TRUE),
-    min_2y_JSL = min(JSL[1:2], na.rm = TRUE),
     .groups = "drop"
   )
 ```
@@ -206,7 +126,7 @@ famine_summary <- famine_periods %>%
 
 ```{r}
 datasummary(duration*Region ~ mean + sd + min + max + N, data = famine_summary,
-            output = "figures/tables/summary_famine.tex",
+            output = "../../figures/tables/summary_famine.tex",
             title = "Summary Statistics of Famine Episodes")
 ```
 
@@ -214,8 +134,48 @@ datasummary(duration*Region ~ mean + sd + min + max + N, data = famine_summary,
 
 ```{r}
 #save to csv
-famine_summary %>% write.csv('processed data/famine_survival.csv')
+famine_summary %>% write.csv('../processed data/famine_survival.csv')
 ```
+
+
+
+
+
+
+```{r, fig.width=5, fig.height=5}
+
+# Compute mean Niño3.4 per duration (for coloring)
+bin_means <- famine_summary %>%
+  group_by(duration) %>%
+  summarise(mean_nino34 = median(avg_nino34, na.rm = TRUE), .groups = "drop")
+
+# Color mapping proportional to mean Niño3.4
+reds_pal <- scales::col_numeric("Reds", domain = range(bin_means$mean_nino34, na.rm = TRUE))
+bin_colors <- setNames(reds_pal(bin_means$mean_nino34), bin_means$duration)
+
+ggplot(famine_summary, aes(y = as.factor(duration), x = avg_nino34, fill = as.factor(duration))) +
+  
+  geom_boxplot(color = "black", linewidth = 1, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 1.5, alpha = 0.7, color = "black") +
+  
+  scale_fill_manual(values = bin_colors) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(
+    x = "Famine duration (years)",
+    y = "NINO3.4 anomaly"
+  ) +
+  theme_classic(base_size = 15) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 15, face = "plain"),
+    axis.text.y = element_text(size = 15, face = "plain"),
+    axis.title = element_text(size = 15, face = "plain")
+  )
+
+ggsave("../../figures/plots/famine_duration_boxplot.pdf", device = cairo_pdf)
+```
+
+
 
 
 
@@ -240,8 +200,6 @@ famine_long <- data_table %>%
   ) %>%
   ungroup()
 ```
-
-
 
 
 ## Regression Tables
@@ -406,14 +364,14 @@ modelsummary(
   gof_omit = ".*",
   add_rows = extra_rows,
   stars = c(`*` = 0.1, `**` = 0.05, `***` = 0.01),
-  output = "figures/tables/dyn_survival_models_reg.tex"
+  output = "../../figures/tables/dyn_survival_models_reg.tex"
 )
 ```
 
 
 ## Coef plots
 
-```{r, fig.width=5, fig.height=4}
+```{r, fig.width=6, fig.height=5}
 models <- list(
   "Base"                        = cox_base,
   "Strata"                 = cox_strata,
@@ -463,16 +421,16 @@ ggplot(nino34_df, aes(x = reorder(Model, coef), y = coef, ymin = lower, ymax = u
     y = "NINO3.4 log hazard ratio", 
     x = "Survival Model"
   ) +
-theme_classic(base_size = 13) +
+theme_classic(base_size = 14) +
   theme(
-    text = element_text(color = "black", size = 13),   # all text black, size 12
+    text = element_text(color = "black", size = 14),   # all text black, size 12
     legend.position = "top",
-    legend.text = element_text(color = "black", size = 13),
+    legend.text = element_text(color = "black", size = 14),
     legend.title = element_text(color = "black", size = 13),
-    axis.text.x = element_text(angle = 25, hjust = 1, color = "black", size = 13),
-    axis.text.y = element_text(color = "black", size = 13),
-    axis.title.x = element_text(color = "black", size = 13),
-    axis.title.y = element_text(color = "black", size = 13),
+    axis.text.x = element_text(angle = 25, hjust = 1, color = "black", size = 14),
+    axis.text.y = element_text(color = "black", size = 14),
+    axis.title.x = element_text(color = "black", size = 14),
+    axis.title.y = element_text(color = "black", size = 14),
     axis.ticks.length = unit(0.25, "cm"),
     axis.line = element_line(size = 0.6, color = "black"),
     panel.border = element_blank(),
@@ -483,7 +441,7 @@ theme_classic(base_size = 13) +
   ylim(-0.7, 0.1) +
   scale_x_discrete(labels = nino34_df$Model_label)
 
-ggsave("figures/plots/nino34_survival_coef_dynamic.pdf", device = cairo_pdf)
+ggsave("../figures/plots/nino34_survival_coef_dynamic.pdf", device = cairo_pdf)
 ```
 
 ## Loo
@@ -556,7 +514,7 @@ ggplot(loo_event,
   #add vline at 0 fashed
   geom_vline(xintercept = 0, linetype = "dashed", color = "black")
 
-ggsave("figures/plots/loo_duration.pdf", device = cairo_pdf)
+ggsave("../figures/plots/loo_duration.pdf", device = cairo_pdf)
 
 ```
 
@@ -624,51 +582,65 @@ sf_points <- sf_long %>%
 x_offset <- 2
 y_offset <- 0.05
 
+# define colours and labels (order must match the ENSO factor values)
+enso_levels <- c("Strong El Niño (+2°)", "La Niña (-1°)", "Neutral", "El Niño (+1°)")
+enso_colors <- c("firebrick", "cornflowerblue", "black", "darksalmon")
+names(enso_colors) <- enso_levels
+
+# HTML/markdown labels coloured to match curves
+enso_labels_html <- setNames(
+  paste0("<span style='color:", enso_colors, "'>", enso_levels, "</span>"),
+  enso_levels
+)
+
+# shapes mapping
+enso_shapes <- c("Strong El Niño (+2°)" = 18,
+                 "La Niña (-1°)" = 19,
+                 "Neutral" = 16,
+                 "El Niño (+1°)" = 17)
+
+# your plotting code, updated
 ggplot(sf_long, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
   geom_line(linewidth = 1.1) +
   geom_point(size = 3) +
-  # Arrows for the two highlighted ENSO scenarios
+  # arrows and percentage labels (keep show.legend = FALSE so they don't create extra legend entries)
   geom_segment(data = sf_points,
-               aes(x = year_of_interest + x_offset, xend = year_of_interest, 
+               aes(x = year_of_interest + x_offset, xend = year_of_interest,
                    y = surv + y_offset, yend = surv),
                arrow = arrow(length = unit(0.3, "cm")),
                inherit.aes = TRUE,
                linewidth = 1,
                show.legend = FALSE) +
-  # Percentage labels, colored by curve
   geom_text(data = sf_points,
-            aes(x = year_of_interest + x_offset + 0.2, y = surv + y_offset, 
+            aes(x = year_of_interest + x_offset + 0.2, y = surv + y_offset,
                 label = prob_label, color = ENSO),
             inherit.aes = FALSE,
             size = 5.5,
             hjust = 0,
             show.legend = FALSE) +
-  scale_color_manual(values = c("Strong El Niño (+2°)" = "firebrick",
-                                "La Niña (-1°)" = "cornflowerblue",
-                                "Neutral" = "black",
-                                "El Niño (+1°)" = "darksalmon")) +
-  scale_shape_manual(values = c("Strong El Niño (+2°)" = 18,
-                                "La Niña (-1°)" = 19,
-                                "Neutral" = 16,
-                                "El Niño (+1°)" = 17)) +
+
+  # use the HTML/markdown labels for both color and shape scales so the legend merges
+  scale_color_manual(values = enso_colors, labels = enso_labels_html) +
+  scale_shape_manual(values = enso_shapes, labels = enso_labels_html) +
+
   labs(
     x = "Famine duration (years)",
     y = "Famine survival probability",
-    color = "ENSO",
-    shape = "ENSO"
+    color = NULL,
+    shape = NULL
   ) +
   scale_y_continuous(labels = percent_format(accuracy = 1)) +
   scale_x_continuous(breaks = 1:12) +
-theme_classic(base_size = 15) +
+  theme_classic(base_size = 14) +
   theme(
-    text = element_text(color = "black", size = 16),   # all text black, size 12
+    text = element_text(color = "black", size = 14),
     legend.position = "top",
-    legend.text = element_text(color = "black", size = 16),
-    legend.title = element_text(color = "black", size = 16),
-    axis.text.x = element_text(color = "black", size = 16),
-    axis.text.y = element_text(color = "black", size = 16),
-    axis.title.x = element_text(color = "black", size = 16),
-    axis.title.y = element_text(color = "black", size = 16),
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = 14),   # <- ggtext: lets our span-coloured labels render
+    axis.text.x = element_text(color = "black", size = 14),
+    axis.text.y = element_text(color = "black", size = 14),
+    axis.title.x = element_text(color = "black", size = 14),
+    axis.title.y = element_text(color = "black", size = 14),
     axis.ticks.length = unit(0.25, "cm"),
     axis.line = element_line(size = 0.6, color = "black"),
     panel.border = element_blank(),
@@ -676,7 +648,7 @@ theme_classic(base_size = 15) +
   ) +
   geom_vline(xintercept = year_of_interest, linetype = "dashed", color = "black", linewidth = 1) +
   annotate("label",
-           x = year_of_interest + 5,
+           x = year_of_interest + 6,
            y = (sf_diff$`Strong El Niño (+2°)` + sf_diff$`La Niña (-1°)`)-0.25,
            label = delta_text,
            size = 5.5,
@@ -684,17 +656,20 @@ theme_classic(base_size = 15) +
            color = "black",
            label.size = 0.5) +
   guides(
-    color = guide_legend(nrow = 2, byrow = TRUE),
+    color = guide_legend(nrow = 2, byrow = TRUE, override.aes = list(size = 3)),
     shape = guide_legend(nrow = 2, byrow = TRUE)
   )
+
 
 # --------------------------
 # Save figure
 # --------------------------
-ggsave("figures/plots/survival_curves_dynamic.pdf", device = cairo_pdf)
+ggsave("../figures/plots/survival_curves_dynamic.pdf", device = cairo_pdf)
 
 
 ```
+
+
 
 
 
@@ -761,7 +736,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
   ) +
   scale_x_continuous(breaks = 1:12)
 
-ggsave("figures/plots/survival_curves_dynamic_strata.pdf", device = cairo_pdf)
+ggsave("../figures/plots/survival_curves_dynamic_strata.pdf", device = cairo_pdf)
 ```
 
 
@@ -828,7 +803,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
   ) +
   scale_x_continuous(breaks = 1:12)
 
-ggsave("figures/plots/survival_curves_dynamic_inter.pdf", device = cairo_pdf)
+ggsave("../figures/plots/survival_curves_dynamic_inter.pdf", device = cairo_pdf)
 ```
 
 
@@ -895,7 +870,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
   ) +
   scale_x_continuous(breaks = 1:12)
 
-ggsave("figures/plots/survival_curves_dynamic_strata_interaction.pdf", device = cairo_pdf)
+ggsave("../figures/plots/survival_curves_dynamic_strata_interaction.pdf", device = cairo_pdf)
 ```
 
 
@@ -997,7 +972,7 @@ ggplot(coef_df, aes(x = Estimate)) +
   ) +
   theme_classic(base_size = 16)
 
-ggsave("figures/plots/permutation_test_dynamic.pdf", device = cairo_pdf)
+ggsave("../figures/plots/permutation_test_dynamic.pdf", device = cairo_pdf)
 ```
 
 
@@ -1153,7 +1128,7 @@ modelsummary(
   gof_omit = ".*",
   add_rows = extra_rows,
   stars = c(`*` = 0.1, `**` = 0.05, `***` = 0.01),
-  output = "figures/tables/static_survival_models_reg.tex"
+  output = "../figures/tables/static_survival_models_reg.tex"
 )
 ```
 
@@ -1213,7 +1188,7 @@ ggplot(nino34_df, aes(x = Model, y = coef, ymin = lower, ymax = upper)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
   ylim(-1.8, 0)   # Set x-axis limits
 
-ggsave("figures/plots/nino34_survival_coef_static.pdf", device = cairo_pdf)
+ggsave("../figures/plots/nino34_survival_coef_static.pdf", device = cairo_pdf)
 ```
 
 
@@ -1349,7 +1324,7 @@ ggplot(sf_long, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
   ) +
   scale_x_continuous(breaks = 1:12)
 
-ggsave("figures/plots/survival_curves_static.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/survival_curves_static.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -1420,7 +1395,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
     panel.grid.major = element_line(color = "gray90", size = 0.3)
   )
 
-ggsave("figures/plots/survival_curves_static_strata.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/survival_curves_static_strata.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -1450,7 +1425,7 @@ stargazer(weib, loglog, gauss,
           single.row = TRUE,
           star.char = c("*", "**", "***"),
           star.cutoffs = c(0.1, 0.05, 0.01), 
-          out = "figures/tables/survival_models_parametric.tex")
+          out = "../figures/tables/survival_models_parametric.tex")
 
 ```
 
@@ -1498,7 +1473,7 @@ label = "tab:duration_avgnino",
 title = "Effect of a 1°C Anomaly in the Average Nino 3.4 Index During a Famine on Its Duration",
       extralines = list(
                   "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes")),
-       file = "figures/tables/famine_duration_fe_avgnino.tex",
+       file = "../figures/tables/famine_duration_fe_avgnino.tex",
        dict = dict,
        replace=TRUE)
 etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls)
@@ -1545,7 +1520,7 @@ title = "Effect of a 1°C Anomaly in the Maximum Nino 3.4 Index During the Initi
       label = "tab:duration_maxnino",
       extralines = list(
                   "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes")),
-       file = "figures/tables/famine_duration_fe_maxnino.tex",
+       file = "../figures/tables/famine_duration_fe_maxnino.tex",
        replace=TRUE)
 
 etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls)
@@ -1558,6 +1533,47 @@ etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls)
 # 5. Famine starts
 
 
+```{r, fig.width=5, fig.height=5}
+# Identify famine onset years for Central Europe
+central_data <- data %>%
+  filter(Region == "Central Europe") %>%
+  arrange(Region, Year) %>%
+  mutate(Famine_onset = Famine_start == 1)
+
+# Prepare dataset for plotting
+plot_df <- bind_rows(
+  central_data %>%
+    filter(Famine_onset) %>%
+    transmute(NINO3.4 = nino34, Group = "Famine Onset"),
+  central_data %>%
+    filter(Famine == 0) %>%
+    transmute(NINO3.4 = nino34, Group = "No Famine")
+)
+
+# ---- Plot ----
+ggplot(plot_df, aes(x = Group, y = NINO3.4, fill = Group)) +
+  geom_boxplot(width = 0.5, linewidth = 1.1, outlier.shape = NA) +
+  geom_jitter(color = "black", alpha = 0.6, width = 0.15) +
+  scale_fill_manual(values = c("Famine Onset" = "darksalmon", "No Famine" = "lightblue")) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 1) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",                         # remove legend
+    text = element_text(color = "black", size = 14),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, color = "black", size = 14),  # tick labels only
+    axis.text.y = element_text(color = "black", size = 14),
+    axis.title.x = element_blank(),                  # remove x-axis title
+    axis.title.y = element_text(color = "black", size = 14),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.line = element_line(size = 0.6, color = "black"),
+    panel.border = element_blank(),
+    plot.margin = margin(10, 10, 10, 10)
+  ) +
+  ylab("NINO3.4")
+
+# Save the figure
+ggsave("../figures/plots/nino34_central_box.pdf", width = 4, height = 4, dpi = 300)
+```
 
 
 ```{r}
@@ -1603,7 +1619,7 @@ fitstat = c("AIC","BIC", "N", "cor2"),
                   "Controls" = c("No","No", "No", "Yes", "Yes", "Yes", "Yes"),
         "Standard Errors" = c("Newey-West","Newey-West", "Driscoll-Kray", "Driscoll-Kray", "IID", "IID", "Driscoll-Kray")),
                   
-       file = "figures/tables/famine_starts_reg.tex",
+       file = "../figures/tables/famine_starts_reg.tex",
        label = "tab:famine_starts",
 title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on the Probability of a Famine Start",
        dict = dict,
@@ -1668,7 +1684,7 @@ theme_classic(base_size = 13) +
     plot.margin = margin(10, 10, 10, 10)
   )
 
-ggsave("figures/plots/famine_start_coef.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/famine_start_coef.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -1808,7 +1824,7 @@ ggplot(coef_df, aes(x = Estimate)) +
   ) +
   theme_classic(base_size = 16)
 
-ggsave("figures/plots/permutation_lpm_onset.pdf", device = cairo_pdf)
+ggsave("../figures/plots/permutation_lpm_onset.pdf", device = cairo_pdf)
 ```
 
 
@@ -1881,7 +1897,34 @@ baseline_central <- unique(loo_central$full_estimate)
    #add 0 line dashed vertical
   geom_vline(xintercept = 0, linetype = "dashed", color = "black")
  
- ggsave("figures/plots/loo_lpm_onset.pdf", device = cairo_pdf)
+ ggsave("../figures/plots/loo_lpm_onset.pdf", device = cairo_pdf)
 ```
 
+
+
+
+# 
+
+
+```{r}
+#CREATE A DUMMY FOR fAMINE START IN CENTRAL EUROPE
+data_spill <- data %>%
+  arrange(Region, Year) %>%
+  group_by(Year) %>%
+  mutate(
+    # Check if Central Europe has a famine start in this year
+    Famine_start_CE = ifelse(any(Region == "Central Europe" & Famine_start == 1), 1, 0),
+  ) %>%
+  ungroup() %>%
+  # Optionally, set Central Europe famine_start to 0 to avoid double-counting
+  mutate(Famine_start = ifelse(Region == "Central Europe", 0, Famine_start)) %>% 
+  #remove central europe from the sample
+  filter(Region != "Central Europe")
+
+#run a model where we see whetehr famine in central europe triggered famine in other regions
+est_spill <- feols(Famine_start ~ l(Famine_start_CE,0:3) + i(Decade) | Region,
+                  data = data_spill, vcov = DK~Year, panel.id = c("Region", "Year"))
+
+summary(est_spill)
+```
 
