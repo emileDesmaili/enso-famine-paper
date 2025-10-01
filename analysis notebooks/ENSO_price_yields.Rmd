@@ -81,7 +81,7 @@ library(purrr)
 
 
 ```{r}
-data <- read.csv('processed data/price_2023_enso.csv')
+data <- read.csv('../processed data/price_2023_enso.csv')
 #put Location and Year as first columns
 data <- data %>% 
     mutate(Decade = floor(Year / 10) * 10) %>% 
@@ -108,7 +108,7 @@ data_lag <- data %>%
   drop_na()
 
 
-data_region <- read.csv('processed data/famine_region_data.csv')
+data_region <- read.csv('../processed data/famine_region_data.csv')
 
 ```
 
@@ -130,7 +130,7 @@ data %>%
 # Then call datasummary
 datasummary(
   formula = Price + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
-  output = "figures/tables/summary_price.tex",
+  output = "../figures/tables/summary_price.tex",
   title = "Summary Statistics for grain price data"
 )
 ```
@@ -185,7 +185,7 @@ etable(est1, est2, est3,est4,
       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Location Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                   "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")),
-       file = "figures/tables/Ljungqvist_ENSO_price_main.tex",
+       file = "../figures/tables/Ljungqvist_ENSO_price_main.tex",
        replace = TRUE)
 
 ```
@@ -328,7 +328,7 @@ ggplot(irfs_full, aes(x = horizon, color = label, fill = label, linetype = label
   )
 
 # Save figure
-ggsave("figures/plots/IRF_ENSO_price_teleco.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_price_teleco.pdf", device = cairo_pdf, dpi = 300)
 
 ```
 
@@ -338,7 +338,7 @@ ggsave("figures/plots/IRF_ENSO_price_teleco.pdf", device = cairo_pdf, dpi = 300)
 
 
 ```{r}
-data_federico <- read.csv('processed data/federico_prices_enso.csv') %>% 
+data_federico <- read.csv('../processed data/federico_prices_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>% 
   dplyr::select(Location,Year,Decade, everything()) %>% 
   drop_na() %>% 
@@ -459,7 +459,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
   ) 
 
 #save
-ggsave("figures/plots/IRF_ENSO_federico.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_federico.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -469,7 +469,7 @@ ggsave("figures/plots/IRF_ENSO_federico.pdf", device = cairo_pdf, dpi=300)
 ## Allen IRF
 
 ```{r}
-wheat_dta <- read_dta('processed data/wheatprices_dataset.dta') %>%
+wheat_dta <- read_dta('../processed data/wheatprices_dataset.dta') %>%
   left_join(data_region %>% 
               dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
             by = c("year" = "Year")) %>%
@@ -591,7 +591,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
   ) 
 
 #save
-ggsave("figures/plots/IRF_ENSO_wheatprice.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_wheatprice.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -707,7 +707,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
   ) 
 
 # Save
-ggsave("figures/plots/IRF_ENSO_price_ninocheck.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_price_ninocheck.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -795,7 +795,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save plot
-ggsave("figures/plots/IRF_subsample_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -877,7 +877,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save the plot
-ggsave("figures/plots/IRF_subsample_20years_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_20years_price.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -923,7 +923,7 @@ etable(est1, est2, est3,est4,
        extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                    "Location Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                   "Standard Errors" = c("Driscoll Kray (L=4)", "Conley (200km)","Conley (500km)", "Two-way Clustered")),
-       file = "figures/tables/SEs_ENSO_price.tex",
+       file = "../figures/tables/SEs_ENSO_price.tex",
        notes = "\\small Notes: Two-way clustered standard errors at the Location and Year level",
        replace = TRUE)
 ```
@@ -1058,7 +1058,7 @@ ggplot() +
   ) +
   theme(legend.position = "none")
 
-ggsave("figures/plots/IRF_ENSO_price_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_price_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -1072,7 +1072,7 @@ ggsave("figures/plots/IRF_ENSO_price_bootstrap_shuffle.pdf", device = cairo_pdf,
 
 ```{r}
 # Step 1: Read and merge data
-yield_dta <- read_dta('processed data/yieldratio_dataset.dta') %>%
+yield_dta <- read_dta('../processed data/yieldratio_dataset.dta') %>%
   left_join(data_region %>% 
               dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
             by = c("year" = "Year")) %>%
@@ -1122,7 +1122,7 @@ etable(est1, est2,est3,est4,
 datasummary(
   formula = yield + nino34 + PDSI_europe + growseasonrain + meantemp + growseasontemp  + ongoing_wars + Deaths ~mean + sd + min + max + N  ,
   data = yield_dta,
-  output = "figures/tables/summary_yield63.tex",
+  output = "../figures/tables/summary_yield63.tex",
   title = "Summary Statistics for grain yield data",
 )
 ```
@@ -1241,7 +1241,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = controls, fill = contro
     shape = guide_legend(nrow = 2, byrow = TRUE)
   ) 
 
-ggsave("figures/plots/IRF_ENSO_yield63.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_yield63.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -1250,7 +1250,7 @@ ggsave("figures/plots/IRF_ENSO_yield63.pdf", device = cairo_pdf, dpi=300)
 ## Yield Ljungqvist
 
 ```{r}
-yield_2023 <- read.csv('processed data/yield_ljungqvist_2025.csv') %>% 
+yield_2023 <- read.csv('../processed data/yield_ljungqvist_2025.csv') %>% 
   mutate(decade = floor(Year / 10) * 10) %>% 
   dplyr::select(VarLocationGrain, Year,decade, everything()) 
 
@@ -1317,7 +1317,7 @@ TI_2023 %>% rename(
 # Then call datasummary
 datasummary(
   formula = logyield + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
-  output = "figures/tables/summary_yield_TI.tex",
+  output = "../figures/tables/summary_yield_TI.tex",
   title = "Summary Statistics for grain tithes data"
 )
 
@@ -1335,7 +1335,7 @@ YR_2023 %>% rename(
 # Then call datasummary
 datasummary(
   formula = logyield + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
-  output = "figures/tables/summary_yield_YR.tex",
+  output = "../figures/tables/summary_yield_YR.tex",
   title = "Summary Statistics for grain yields data"
 )
 
@@ -1434,7 +1434,7 @@ etable(est1, est2, est3,est4,
        extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                    "Type-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                    'Controls' = c("None", "Climate", "Conflict", "Climate + Conflict")),
-       file = "figures/tables/FE_ENSO_yieldPDSI.tex",
+       file = "../figures/tables/FE_ENSO_yieldPDSI.tex",
        replace = TRUE)
 ```
 
@@ -1482,7 +1482,7 @@ etable(est1, est2, est3,est4,
        extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                    "Proxy-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes","Yes"),
                    'Controls' = c("None", "Climate", "Conflict", "Climate + Conflict")),
-       file = "figures/tables/FE_ENSO_yieldPrecip.tex",
+       file = "../figures/tables/FE_ENSO_yieldPrecip.tex",
        replace = TRUE)
 ```
 
@@ -1532,7 +1532,7 @@ etable(est1, est2, est3,est4,
                    "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
                                          "Two-way Clustered")),
       notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level. Proxy refers to the type of harvest record (tithe, yield or yield ratio).",
-       file = "figures/tables/SEs_ENSO_yieldPDSI.tex",
+       file = "../figures/tables/SEs_ENSO_yieldPDSI.tex",
        replace = TRUE)
 ```
 
@@ -1579,7 +1579,7 @@ etable(est1, est2, est3,est4,
                    "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
                                          "Two-way Clustered")),
       notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level. Proxy refers to the type of harvest record (tithe, yield or yield ratio).",
-       file = "figures/tables/SEs_ENSO_yieldPrecip.tex",
+       file = "../figures/tables/SEs_ENSO_yieldPrecip.tex",
        replace = TRUE)
 ```
 
@@ -1722,7 +1722,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("figures/plots/IRF_ENSO_yield_WR_teleco.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yield_WR_teleco.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -1862,7 +1862,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("figures/plots/IRF_ENSO_yield_noWR_teleco.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yield_noWR_teleco.pdf", device = cairo_pdf, dpi = 300)
 ```
 ## IRF AMJJ P
 
@@ -1995,7 +1995,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("figures/plots/IRF_ENSO_yield_WR_telecoAMJJ_P.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yield_WR_telecoAMJJ_P.pdf", device = cairo_pdf, dpi = 300)
 ```
 ## IRF NDJF P
 
@@ -2128,7 +2128,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("figures/plots/IRF_ENSO_yield_telecoNDJF_P.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yield_telecoNDJF_P.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -2264,7 +2264,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("figures/plots/IRF_ENSO_yield_telecoNDJF_T.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yield_telecoNDJF_T.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -2376,7 +2376,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = controls, fill = contro
   )
 
 # Save
-ggsave("figures/plots/IRF_ENSO_WR_ninocheck.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_WR_ninocheck.pdf", device = cairo_pdf, dpi=300)
 
 ```
 
@@ -2476,7 +2476,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save plot
-ggsave("figures/plots/IRF_subsample_WR.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_WR.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -2562,7 +2562,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save the plot
-ggsave("figures/plots/IRF_subsample_20years_WR.pdf", width = 8, height = 8, device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_20years_WR.pdf", width = 8, height = 8, device = cairo_pdf, dpi = 300)
 
 
 ```
@@ -2695,7 +2695,7 @@ ggplot() +
   ) +
   theme(legend.position = "none")
 
-ggsave("figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
 
 ```
 
@@ -2710,7 +2710,7 @@ ggsave("figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo_pd
 
 
 ```{r}
-fishprice <- read.csv('processed data/fishprice_enso.csv') %>% 
+fishprice <- read.csv('../processed data/fishprice_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>%
   dplyr::select(LocationSpecies,Year, Decade, everything()) 
 ```
@@ -2731,7 +2731,7 @@ fishprice %>% rename(
 # Then call datasummary
 datasummary(
   formula = Price + NINO3.4 + PDSI + `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` + `ongoing wars` + Deaths ~ mean + sd + min + max + N,
-  output = "figures/tables/summary_fishprice.tex",
+  output = "../figures/tables/summary_fishprice.tex",
   title = "Summary Statistics for fish prices data"
 )
 
@@ -2786,7 +2786,7 @@ etable(est1, est2, est3,est4,
       extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                   "Controls" = c("No", "Climate", "Conflict", "Climate+Conflict")),
-       file = "figures/tables/ENSO_fishprice_main.tex",
+       file = "../figures/tables/ENSO_fishprice_main.tex",
        replace = TRUE)
 ```
 
@@ -2833,139 +2833,13 @@ etable(est1, est2, est3,est4,
                    "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                   "Standard Errors" = c("Driscoll Kray (L=4)", "Conley (200km)", "Conley (500km)",
                                         "Two-way Clustered")),
-       file = "figures/tables/SEs_ENSO_fishprice.tex",
+       file = "../figures/tables/SEs_ENSO_fishprice.tex",
        notes = "\\small Two-way clustered standard errors at the Location-Species and Year level.",
        replace = TRUE)
 ```
 
 
 
-
-## IRF
-
-
-```{r}
-control_dict <- list(
-  "Base" = "Decade",
-  "Climate" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL"),
-  "Conflict" = c("Decade", "ongoing_wars", "Deaths"),
-  "Climate + Conflict" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", 
-                           "NAO_cal", "JSL", "ongoing_wars", "Deaths")
-)
-
-# Initialize empty list to collect IRFs
-irf_list <- list()
-
-# Loop properly over names and controls
-for (control_name in names(control_dict)) {
-  
-  controls <- control_dict[[control_name]] # the actual list of controls
-  
-  results_panel <- lp_lin_panel(
-    data_set     = fishprice %>% mutate(Decade = as.factor(Decade)),
-    endog_data   = "logprice",
-    cumul_mult   = TRUE,
-    shock        = "nino34",
-    diff_shock   = FALSE,
-    panel_model  = "within",
-    panel_effect = "individual",
-    c_exog_data  = controls,
-    robust_cov   = "vcovSCC",
-    confint      = 1.96,
-    hor          = 11
-  )
-  
-  # Build tidy data.frame
-  irf_df <- data.frame(
-    controls = control_name, # use the name here, not the list of variables
-    horizon  = 0:10,
-    irf_mean = as.numeric(results_panel$irf_panel_mean[1, ]),
-    irf_up   = as.numeric(results_panel$irf_panel_up[1, ]),
-    irf_down = as.numeric(results_panel$irf_panel_low[1, ]),
-    stringsAsFactors = FALSE
-  )
-  
-  irf_list[[length(irf_list) + 1]] <- irf_df
-}
-
-# Combine all into one data.frame
-irfs_full <- bind_rows(irf_list)
-```
-
-
-```{r}
-#round numeric to 2 float *100 and display
-irfs_full %>%
-  mutate(across(where(is.numeric), ~ round(. * 100, 2)))
-```
-
-
-
-```{r, fig.width=6, fig.height=5}
-ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
-  # RIBBON ONLY FOR "None"
-  geom_ribbon(
-    data = filter(irfs_full, controls == "Base"),
-    aes(ymin = irf_down, ymax = irf_up),
-    alpha = 0.15,
-    color = NA
-  ) +
-  # LINES FOR ALL
-  geom_line(aes(y = irf_mean, linetype = controls), linewidth = 1.2) +
-  # Zero line
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", size = 0.8) +
-  # Axes
-  scale_x_continuous(
-    breaks = 0:max(irfs_full$horizon),
-    labels = 0:max(irfs_full$horizon)
-  ) +
-  # Colors and linetypes
-  scale_color_manual(values = c(
-    "Base" = "black",      
-    "Climate" = "#d95f02",   
-    "Conflict" = "steelblue",  
-    "Climate + Conflict" = "orange"
-  )) +
-  scale_fill_manual(values = c(
-    "Base" = "cornflowerblue",
-    "Climate" = "#d95f02",
-    "Conflict" = "steelblue",
-    "Climate + Conflict" = "coral"
-  )) +
-  scale_linetype_manual(values = c(
-    "Base" = "solid",
-    "Climate" = "solid",
-    "Conflict" = "dashed",
-    "Climate + Conflict" = "dashed"
-  )) +
-  theme_classic(base_size = 16) +
-  labs(
-    x = "Horizon (Years)",
-    y = "Fish Price variation",
-    color = "Controls",
-    fill = "Controls",
-    linetype = "Controls"
-  ) +
-  theme(
-    legend.position = "top",
-    legend.title = element_text(size = 16, face = "bold"),
-    legend.text = element_text(size = 16),
-    axis.title = element_text(size = 16),
-    axis.text = element_text(size = 16),
-    panel.grid.minor = element_blank()
-  ) +
-  #make yaxis ticks every 0.025 and make it percentage
-  scale_y_continuous(
-    breaks = seq(-0.1, 0.1, by = 0.025),
-    labels = scales::percent_format(accuracy = .1)
-  ) + guides(
-    color = guide_legend(nrow = 2, byrow = TRUE),
-    shape = guide_legend(nrow = 2, byrow = TRUE)
-  ) 
-
-# Save
-ggsave("figures/plots/IRF_ENSO_fishprice.pdf", device = cairo_pdf, dpi=300)
-```
 
 ## IRF fish species
 
@@ -3083,7 +2957,7 @@ ggplot(irfs_full, aes(x = horizon, color = species, fill = species)) +
     shape = guide_legend(nrow = 1, byrow = TRUE)
   )
 
-ggsave("figures/plots/IRF_ENSO_fishprice_species.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_fishprice_species.pdf", device = cairo_pdf, dpi = 300)
 
 ```
 
@@ -3201,7 +3075,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
   ) 
 
 # Save
-ggsave("figures/plots/IRF_ENSO_fishprice_ninocheck.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/IRF_ENSO_fishprice_ninocheck.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -3288,7 +3162,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save plot
-ggsave("figures/plots/IRF_subsample_fishprice.pdf", width = 12, height = 6, device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_fishprice.pdf", width = 12, height = 6, device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -3370,7 +3244,7 @@ ggplot(irfs_subsamples, aes(x = horizon, y = irf_mean)) +
   )
 
 # Save the plot
-ggsave("figures/plots/IRF_subsample_20years_fishprice.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_subsample_20years_fishprice.pdf", width = 12, height = 10, device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -3503,7 +3377,7 @@ ggplot() +
   ) +
   theme(legend.position = "none")
 
-ggsave("figures/plots/IRF_ENSO_fishprice_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_ENSO_fishprice_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -3601,14 +3475,14 @@ kable(
 )
 
 # Save the LaTeX table
-writeLines(latex_table, "figures/tables/granger_enso.tex")
+writeLines(latex_table, "../figures/tables/granger_enso.tex")
 ```
 
 
 # 5. Fish catches
 
 ```{r}
-fishcatch <- read.csv('processed data/fishcatch_enso.csv') %>% 
+fishcatch <- read.csv('../processed data/fishcatch_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>%
   dplyr::select(TypeLocation,Year, Decade, everything()) # %>% 
   #filter(Catch > 0) 
@@ -3636,7 +3510,7 @@ etable(est1,est2,
        extralines = list("Decade Fixed Effects" = c("Yes","No"),
                    "Location-Species Fixed Effects" = c("Yes","No"),
                   "Standard Errors" = c("Cluster by Location-Species & Year")),
-       file = "figures/tables/FE_ENSO_fishcatch.tex",
+       file = "../figures/tables/FE_ENSO_fishcatch.tex",
        replace = TRUE)
 ```
 
@@ -3734,7 +3608,7 @@ ggplot(irfs_dual, aes(x = horizon, color = shock, fill = shock)) +
   )
 
 
-ggsave("figures/plots/IRF_catches.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/IRF_catches.pdf", device = cairo_pdf, dpi = 300)
 
 ```
 
