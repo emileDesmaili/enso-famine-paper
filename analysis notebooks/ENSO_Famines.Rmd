@@ -68,7 +68,7 @@ suppressPackageStartupMessages(suppressWarnings(library(ggtext)))
 # Data
 ```{r}
 
-data <- read.csv("../processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10) %>% 
+data <- read.csv("../ processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10) %>% 
   #sort years within region
   arrange(Region, Year) 
 
@@ -81,14 +81,16 @@ pdata = fixest::panel(data, panel = ~ Region+Year)
 ```{r}
 # Step 1: filter to famine years only
 famine_periods <- data %>%
-  filter(Famine > 0) %>%
   group_by(Region) %>%
-  mutate(group_id = rleid(Famine_dur2)) %>%  # assign unique ID to each block of same Famine_dur2
+  mutate(
+    famine_id = cumsum(Famine_start == 1)   # cumulative count of famine starts
+  ) %>%
+  filter(Famine > 0) %>%                   # keep only famine periods
   ungroup()
 
 # Step 2: summarize per famine episode
 famine_summary <- famine_periods %>%
-  group_by(Region, group_id) %>%
+  group_by(Region, famine_id) %>%
   arrange(Year,.by_group = TRUE) %>%  # Ensure values are in chronological order
   summarise(
     start_year = min(Year),
@@ -126,7 +128,7 @@ famine_summary <- famine_periods %>%
 
 ```{r}
 datasummary(duration*Region ~ mean + sd + min + max + N, data = famine_summary,
-            output = "../../figures/tables/summary_famine.tex",
+            output = "../figures/tables/summary_famine.tex",
             title = "Summary Statistics of Famine Episodes")
 ```
 
@@ -172,7 +174,7 @@ ggplot(famine_summary, aes(y = as.factor(duration), x = avg_nino34, fill = as.fa
     axis.title = element_text(size = 15, face = "plain")
   )
 
-ggsave("../../figures/plots/famine_duration_boxplot.pdf", device = cairo_pdf)
+ggsave("../figures/plots/famine_duration_boxplot.pdf", device = cairo_pdf)
 ```
 
 
@@ -364,7 +366,7 @@ modelsummary(
   gof_omit = ".*",
   add_rows = extra_rows,
   stars = c(`*` = 0.1, `**` = 0.05, `***` = 0.01),
-  output = "../../figures/tables/dyn_survival_models_reg.tex"
+  output = "../figures/tables/dyn_survival_models_reg.tex"
 )
 ```
 
@@ -730,9 +732,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
     legend.text = element_text(size = 11),
     axis.title = element_text(size = 13, face = "bold"),
     axis.text = element_text(size = 11),
-    strip.text = element_text(size = 12, face = "bold"),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90", size = 0.3)
+    strip.text = element_text(size = 12, face = "bold")
   ) +
   scale_x_continuous(breaks = 1:12)
 
@@ -797,9 +797,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
     legend.text = element_text(size = 11),
     axis.title = element_text(size = 13, face = "bold"),
     axis.text = element_text(size = 11),
-    strip.text = element_text(size = 12, face = "bold"),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90", size = 0.3)
+    strip.text = element_text(size = 12, face = "bold")
   ) +
   scale_x_continuous(breaks = 1:12)
 
@@ -864,9 +862,7 @@ ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
     legend.text = element_text(size = 11),
     axis.title = element_text(size = 13, face = "bold"),
     axis.text = element_text(size = 11),
-    strip.text = element_text(size = 12, face = "bold"),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90", size = 0.3)
+    strip.text = element_text(size = 12, face = "bold")
   ) +
   scale_x_continuous(breaks = 1:12)
 
@@ -977,433 +973,9 @@ ggsave("../figures/plots/permutation_test_dynamic.pdf", device = cairo_pdf)
 
 
 
-# 2. Survival static model
-
-## Regression Tables
-
-
+# 2. parametric models
 
 ```{r}
-cox_base <- coxph(Surv(duration) ~ avg_nino34, data = famine_summary)
-
-
-cox_strata <- coxph(Surv(duration)  ~ avg_nino34 + strata(Region), 
-                   data = famine_summary)
-
-
-cox_controls <- coxph(Surv(duration) ~ avg_nino34 + avg_ongoing_wars  + avg_temp_summer + avg_temp_winter + avg_PDSI + avg_precip_winter, data = famine_summary)
-
-
-
-cox_controls_strata <- coxph(Surv(duration) ~ avg_nino34 + avg_ongoing_wars + avg_temp_summer + avg_temp_winter + avg_PDSI + avg_precip_winter + strata(Region), data = famine_summary)
-
-# Interaction/RE
-
-cox_inter <- coxph(Surv(duration) ~ avg_nino34:strata(Region) + Region, 
-                   data = famine_summary)
-
-
-cox_inter_controls <- coxph(Surv(duration) ~ avg_nino34:strata(Region) + avg_ongoing_wars + avg_temp_summer + avg_temp_winter + avg_PDSI + avg_precip_winter, 
-                   data = famine_summary)
-
-# RE
-
-cox_frail <- coxph(Surv(duration) ~ avg_nino34 + frailty(Region), 
-                   data = famine_summary)
-
-cox_frail_strata <- coxph(Surv(duration) ~ avg_nino34 + frailty(Region) + strata(Region), 
-                   data = famine_summary)
-
-cox_ME <- coxme(Surv(duration) ~ avg_nino34 + avg_ongoing_wars+ (1+avg_nino34|Region), 
-                   data = famine_summary)
-
-
-
-```
-
-
-```{r}
-# --- Models list ---
-models <- list(
-  "(1)" = cox_base,
-  "(2)" = cox_strata,
-  "(3)" = cox_controls,
-  "(4)" = cox_controls_strata,
-  "(5)" = cox_frail,
-  "(6)" = cox_frail_strata
-)
-
-# Cluster variable
-cluster_var <- famine_long$famine_id
-
-# Robust SEs
-robust_vcovs <- lapply(models, function(model) {
-  if (!inherits(model, "coxph")) return(NULL)
-  has_cluster <- any(grepl("cluster", deparse(model$call)))
-  if (has_cluster) {
-    tryCatch(sandwich::vcovCL(model, cluster = cluster_var), error = function(e) NULL)
-  } else {
-    NULL
-  }
-})
-
-# Extract AIC, BIC, Concordance, PH test
-extract_info <- function(model) {
-  if (!inherits(model, "coxph")) return(list(AIC = NA, BIC = NA, Concordance = NA, PH_p = NA))
-  
-  aic <- AIC(model)
-  bic <- BIC(model)
-  
-  # Concordance
-  c_index <- tryCatch({
-    summary(model)$concordance[1]
-  }, error = function(e) NA)
-
-  # PH test p-value for nino34
-  ph_p <- NA
-  if (!any(grepl("frailty", deparse(model$call)))) {
-    test <- try(cox.zph(model), silent = TRUE)
-    if (!inherits(test, "try-error") && "nino34" %in% rownames(test$table)) {
-      ph_p <- round(test$table["avg_nino34", "p"], 3)
-    }
-  }
-
-  list(AIC = round(aic, 1), BIC = round(bic, 1), Concordance = round(c_index, 3), PH_p = ph_p)
-}
-info_list <- lapply(models, extract_info)
-aic_values <- sapply(info_list, `[[`, "AIC")
-bic_values <- sapply(info_list, `[[`, "BIC")
-cindex_values <- sapply(info_list, `[[`, "Concordance")
-ph_tests <- sapply(info_list, function(x) ifelse(is.na(x$PH_p), "-", sprintf("%.3f", x$PH_p)))
-
-# Automatically detect model features
-detect_in_call <- function(models, pattern) {
-  sapply(models, function(model) {
-    if (!inherits(model, "coxph")) return("-")
-    ifelse(any(grepl(pattern, deparse(model$call))), "Yes", "No")
-  })
-}
-
-region_FE <- detect_in_call(models, "strata\\(.*Region.*\\)|Region")
-clustered_SEs <- detect_in_call(models, "cluster")
-strata_region <- detect_in_call(models, "strata\\(.*Region.*\\)")
-controls_included <- detect_in_call(models, "wars|pop")
-frailty_included <- detect_in_call(models, "frailty")
-
-# Build extra rows table
-extra_rows <- tibble::tibble(
-  term = c(
-    "Clustered SEs",
-    "Strata by Region",
-    "Controls",
-    "Random Effects",
-    "Proportional Hazards p",
-    "Concordance Index",
-    "AIC",
-    "BIC"
-  ),
-  !!!setNames(
-    purrr::transpose(list(
-      clustered_SEs,
-      strata_region,
-      controls_included,
-      frailty_included,
-      ph_tests,
-      sprintf("%.3f", cindex_values),
-      sprintf("%.1f", aic_values),
-      sprintf("%.1f", bic_values)
-    )),
-    names(models)
-  )
-)
-
-# Generate summary table
-modelsummary(
-    title = '\\label{tab:staticsurvENSO}Log Hazard Ratio of Nino 3.4 on Famine Duration, Static Cox Model',
-  escape = FALSE,
-  models,
-  coef_omit = "^(?!.*avg_nino34).*",
-  coef_map = c("avg_nino34" = "nino34"),
-  vcov = robust_vcovs,
-  gof_omit = ".*",
-  add_rows = extra_rows,
-  stars = c(`*` = 0.1, `**` = 0.05, `***` = 0.01),
-  output = "../figures/tables/static_survival_models_reg.tex"
-)
-```
-
-
-## Coef plots
-
-```{r}
-models <- list(
-  "Base"                   = cox_base,
-  "Region Strata"                 = cox_strata,
-  "Controls"               = cox_controls,
-  "Controls + Region Strata "    = cox_controls_strata
-)
-
-extract_nino34 <- function(model) {
-  if (!inherits(model, "coxph")) return(NULL)
-  
-  # Extract the coefficients and check if robust SEs are available
-  coefs <- summary(model)$coefficients
-  nino34_coef <- coefs["avg_nino34", "coef"]
-  
-  nino34_se <- coefs["avg_nino34", "se(coef)"]
-  
-  
-  return(c(coef = nino34_coef, se = nino34_se))
-}
-
-# Apply the function to all models and create a data frame
-nino34_results <- lapply(models, extract_nino34)
-nino34_df <- do.call(rbind, nino34_results)
-nino34_df <- as.data.frame(nino34_df)
-nino34_df$Model <- rownames(nino34_df)
-
-# Calculate lower and upper bounds for the confidence interval
-nino34_df$lower <- nino34_df$coef - 1.96 * nino34_df$se
-nino34_df$upper <- nino34_df$coef + 1.96 * nino34_df$se
-
-# Plot the results with refined styling
-ggplot(nino34_df, aes(x = Model, y = coef, ymin = lower, ymax = upper)) +
-  geom_pointrange(color = "royalblue", size = 1.5, fill = "white", 
-                  fatten = 2, position = position_dodge(width = 0.6)) +  # Adds color and adjusts error bars
-  theme_classic(base_size = 16) +  # Clean background and adjust base font size
-  labs(
-    y = "Coefficient Estimate for nino34", 
-    x = "Model"
-  ) +
-  theme(
-    axis.title = element_text(size = 14, face = "bold"),  # Make axis titles bold
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold the title
-    panel.grid.minor = element_blank(),  # Remove minor grid lines
-    panel.grid.major = element_line(color = "gray90", size = 0.5),  # Lighter grid lines for major grid
-    axis.line = element_line(color = "black", size = 0.5),  # Add axis lines for structure
-    legend.position = "none",  # Remove legend (if any)
-    plot.margin = unit(c(1, 1, 1, 1), "cm")  # Increase plot margins for clarity
-  ) +
-  coord_flip()+ 
-  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
-  ylim(-1.8, 0)   # Set x-axis limits
-
-ggsave("../figures/plots/nino34_survival_coef_static.pdf", device = cairo_pdf)
-```
-
-
-
-```{r}
-extract_region_nino34 <- function(model, model_name) {
-  if (!inherits(model, "coxph")) return(NULL)
-
-  s <- summary(model)
-  coefs <- s$coefficients
-
-  # Get names that contain the interaction term
-  term_rows <- grep("nino34.*Region", rownames(coefs), value = TRUE)
-  if (length(term_rows) == 0) return(NULL)
-
-  # Filter out NAs
-  coefs <- coefs[term_rows, , drop = FALSE]
-  coefs <- coefs[!is.na(coefs[, "coef"]), , drop = FALSE]
-
-  # Extract standard errors: use "robust se" if available
-  se_col <- if ("robust se" %in% colnames(coefs)) "robust se" else "se(coef)"
-
-  # Clean region names
-  regions <- gsub(".*Region\\)?", "", rownames(coefs))
-
-  data.frame(
-    model = model_name,
-    Region = regions,
-    coef = coefs[, "coef"],
-    se = coefs[, se_col],
-    stringsAsFactors = FALSE
-  )
-}
-
-models <- list(
-  "Base"                        = static_base,
-  "Interaction"                 = static_inter,
-  "Interaction + Cluster"       = static_inter_cluster,
-  "Interaction + Cluster + Controls" = static_inter_controls
-)
-
-region_coefs <- lapply(names(models), function(name) {
-  extract_region_nino34(models[[name]], name)
-}) %>% bind_rows()
-
-# Add confidence intervals
-region_coefs <- region_coefs %>%
-  mutate(
-    lower = coef - 1.96 * se,
-    upper = coef + 1.96 * se
-  )
-
-# Plot
-
-ggplot(region_coefs, aes(x = Region, y = coef, ymin = lower, ymax = upper, color = model, group = model,shape=model)) +
-  geom_point(position = position_dodge(width = 0.6), size = 2) +
-  geom_errorbar(position = position_dodge(width = 0.6), width = 0.2, size = 1) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  theme_classic(base_size = 16) +
-  labs(
-    x = NULL,
-    y = "Coefficient (log hazard ratio)",
-    color = "Model",
-    shape = "Model"
-  ) +
-  theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0),
-    plot.subtitle = element_text(size = 13, hjust = 0),
-    axis.text.y = element_text(size = 12),
-    axis.text.x = element_text(size = 12),
-    legend.position = "top",
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank()
-  )
-```
-
-
-
-
-## Survival curves
-
-```{r, fig.width=6, fig.height=5}
-new_data <- expand.grid(
-  avg_nino34 = c(-1, 0,1),  # La Niña, Neutral, El Niño
-  Region = unique(famine_summary$Region)
-)
-
-cox_base <- coxph(Surv(duration) ~ avg_nino34 + Region, data = famine_summary)
-
-# Get survfit
-surv_fit <- survfit(cox_base, newdata = new_data)
-
-# Extract and reshape summary
-sf <- summary(surv_fit)
-
-# Reshape survival values to long format manually
-sf_long <- tibble(
-  time = sf$time,
-  `La Niña` = sf$surv[, 1],
-  `Neutral` = sf$surv[, 2],
-  `El Niño` = sf$surv[, 3]
-) %>%
-  pivot_longer(
-    cols = -time,
-    names_to = "ENSO",
-    values_to = "surv"
-  ) %>%
-  mutate(event_prob = 1 - surv)
-
-# Plot
-ggplot(sf_long, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
-  geom_line(linewidth = 1.1) +
-  geom_point(size = 3) +
-  #add confidence intervals
-  scale_color_manual(values = c("La Niña" = "cornflowerblue", "Neutral" = "black", "El Niño" = "coral")) +
-  scale_shape_manual(values = c(16, 17, 18)) +
-  labs(
-    x = "Famine duration (years)",
-    y = "Cumulative prob. of continuing famine ",
-    color = "ENSO anomaly",
-    shape = "ENSO anomaly"
-  ) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  theme_classic(base_size=16) +
-  theme(
-    legend.position = "top",
-    legend.title = element_text(size = 15, face = "bold"),
-    legend.text = element_text(size = 15),
-    axis.title = element_text(size = 15, face = "bold"),
-    axis.text = element_text(size = 15),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90", size = 0.3)
-  ) +
-  scale_x_continuous(breaks = 1:12)
-
-ggsave("../figures/plots/survival_curves_static.pdf", device = cairo_pdf, dpi=300)
-```
-
-
-
-```{r, fig.width=8, fig.height=7}
-# Fit Cox model with strata on Region
-cox_model <- coxph(Surv(duration) ~ avg_nino34:strata(Region),
-                   data = famine_summary)
-
-# Create new data for all combinations of ENSO states and Regions
-new_data <- expand.grid(
-  avg_nino34 = c(-1, 0,1),  # La Niña, Neutral, El Niñ
-  Region = unique(famine_summary$Region)
-)
-
-# Predict survival curves
-surv_fit <- survfit(cox_model, newdata = new_data)
-
-# Extract the summary
-sf <- summary(surv_fit)
-
-# Get the number of rows per curve from the summary
-curve_lengths <- as.numeric(table(sf$strata))
-
-# Repeat each row of new_data according to the number of time points in each curve
-repeated_new_data <- new_data[rep(1:nrow(new_data), times = curve_lengths), ]
-
-# Construct full dataframe
-surv_df <- data.frame(
-  time = sf$time,
-  surv = sf$surv,
-  lower = sf$lower,
-  upper = sf$upper
-) %>%
-  bind_cols(repeated_new_data) %>%
-  mutate(
-    ENSO = factor(case_when(
-      avg_nino34 == -1 ~ "La Niña",
-      avg_nino34 == 0 ~ "Neutral",
-      avg_nino34 == 1 ~ "El Niño"
-    ), levels = c("La Niña", "Neutral", "El Niño")),
-    event_prob = 1 - surv
-  )
-
-# Plot
-ggplot(surv_df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  scale_color_manual(values = c("La Niña" = "cornflowerblue", "Neutral" = "black", "El Niño" = "coral")) +
-  scale_shape_manual(values = c(16, 17, 18)) +
-  labs(
-    x = "Famine duration (years)",
-    y = "Cumulative probability famine has ended",
-    color = "ENSO anomaly",
-    shape = "ENSO anomaly"
-  ) +
-  scale_y_continuous(labels = percent_format(accuracy = 1)) +
-  facet_wrap(~ Region, scales = "free", ncol = 3) +
-  theme_classic(base_size=16) +
-  theme(
-    legend.position = "top",
-    legend.title = element_text(size = 12, face = "bold"),
-    legend.text = element_text(size = 11),
-    axis.title = element_text(size = 13, face = "bold"),
-    axis.text = element_text(size = 11),
-    strip.text = element_text(size = 12, face = "bold"),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90", size = 0.3)
-  )
-
-ggsave("../figures/plots/survival_curves_static_strata.pdf", device = cairo_pdf, dpi=300)
-```
-
-
-
-# 3. parametric models
-
-```{r}
-exp <- survreg(Surv(duration) ~avg_nino34  , data= famine_summary, dist="exponential")
 weib <- survreg(Surv(duration) ~ avg_nino34 + strata(Region), data= famine_summary, dist="weibull")
 loglog <- survreg(Surv(duration) ~ avg_nino34 + strata(Region), data= famine_summary, dist="loglogistic")
 gauss <- survreg(Surv(duration) ~ avg_nino34 + strata(Region), data= famine_summary, dist="gaussian")
@@ -1431,7 +1003,7 @@ stargazer(weib, loglog, gauss,
 
 
 
-#4. FE on duration
+#3. FE on duration
 
 ```{r}
 
@@ -1530,7 +1102,7 @@ etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls)
 
 
 
-# 5. Famine starts
+# 4. Famine starts
 
 
 ```{r, fig.width=5, fig.height=5}
@@ -1903,28 +1475,4 @@ baseline_central <- unique(loo_central$full_estimate)
 
 
 
-# 
-
-
-```{r}
-#CREATE A DUMMY FOR fAMINE START IN CENTRAL EUROPE
-data_spill <- data %>%
-  arrange(Region, Year) %>%
-  group_by(Year) %>%
-  mutate(
-    # Check if Central Europe has a famine start in this year
-    Famine_start_CE = ifelse(any(Region == "Central Europe" & Famine_start == 1), 1, 0),
-  ) %>%
-  ungroup() %>%
-  # Optionally, set Central Europe famine_start to 0 to avoid double-counting
-  mutate(Famine_start = ifelse(Region == "Central Europe", 0, Famine_start)) %>% 
-  #remove central europe from the sample
-  filter(Region != "Central Europe")
-
-#run a model where we see whetehr famine in central europe triggered famine in other regions
-est_spill <- feols(Famine_start ~ l(Famine_start_CE,0:3) + i(Decade) | Region,
-                  data = data_spill, vcov = DK~Year, panel.id = c("Region", "Year"))
-
-summary(est_spill)
-```
 
