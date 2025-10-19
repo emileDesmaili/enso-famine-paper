@@ -1043,8 +1043,11 @@ etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls,
 fitstat = c("AIC","BIC", "N", "cor2"),
 label = "tab:duration_avgnino",
 title = "Effect of a 1°C Anomaly in the Average Nino 3.4 Index During a Famine on Its Duration",
+       drop.section = "fixef",
       extralines = list(
-                  "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes")),
+                  "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes"),
+                  "Region Fixed Effects" = c("Yes", "Yes", "Yes", "Yes", "Yes", "Yes"),
+"Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes", "Yes", "Yes")),
        file = "../figures/tables/famine_duration_fe_avgnino.tex",
        dict = dict,
        replace=TRUE)
@@ -1090,8 +1093,11 @@ etable(ols_1, ols_controls, pois_1, pois_controls, negbin_1, negbin_controls,
 fitstat = c("AIC","BIC", "N", "cor2"),
 title = "Effect of a 1°C Anomaly in the Maximum Nino 3.4 Index During the Initial Two Years of Famine on Its Duration",
       label = "tab:duration_maxnino",
+       drop.section = "fixef",
       extralines = list(
-                  "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes")),
+                  "Controls" = c("No", "Yes", "No", "Yes", "No", "Yes"),
+                  "Region Fixed Effects" = c("Yes", "Yes", "Yes", "Yes", "Yes", "Yes"),
+"Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes", "Yes", "Yes")),
        file = "../figures/tables/famine_duration_fe_maxnino.tex",
        replace=TRUE)
 
