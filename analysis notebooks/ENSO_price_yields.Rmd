@@ -81,7 +81,7 @@ library(purrr)
 
 
 ```{r}
-data <- read.csv('../processed data/price_2023_enso.csv')
+data <- read.csv('../data/price_2023_enso.csv')
 #put Location and Year as first columns
 data <- data %>% 
     mutate(Decade = floor(Year / 10) * 10) %>% 
@@ -108,7 +108,7 @@ data_lag <- data %>%
   drop_na()
 
 
-data_region <- read.csv('../processed data/famine_region_data.csv')
+data_region <- read.csv('../data/famine_region_data.csv')
 
 ```
 
@@ -135,21 +135,21 @@ datasummary(
 )
 ```
 
-
+## FE-DL
 
 
 ```{r}
-est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-est2 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL | Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-est3 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-est4 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est1 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter | Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est3 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est4 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + ongoing_wars + log(1+Deaths) | Location, data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
 
 
 
 etable(est1, est2, est3,est4,
        keep = "nino",
 vcov = DK~Year,
-fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+fitstat = c("AIC","BIC", "N", "r2", "wr2"),
 drop.section = "fixef",
 extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Location Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
@@ -178,7 +178,7 @@ etable(est1, est2, est3,est4,
        vcov = DK ~ Year,
        label = "tab:grainprice_FE",
       keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        drop.section = "fixef",
       title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Prices",
@@ -338,7 +338,7 @@ ggsave("../figures/plots/IRF_ENSO_price_teleco.pdf", device = cairo_pdf, dpi = 3
 
 
 ```{r}
-data_federico <- read.csv('../processed data/federico_prices_enso.csv') %>% 
+data_federico <- read.csv('../data/federico_prices_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>% 
   dplyr::select(Location,Year,Decade, everything()) %>% 
   drop_na() %>% 
@@ -349,9 +349,9 @@ data_federico <- read.csv('../processed data/federico_prices_enso.csv') %>%
 ```{r}
 control_dict <- list(
   "Base" = "Decade",
-  "Climate" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL"),
+  "Climate" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter"),
   "Conflict" = c("Decade", "ongoing_wars", "Deaths"),
-  "Climate + Conflict" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "NAO_cal", "JSL", "ongoing_wars", "Deaths"
+  "Climate + Conflict" = c("Decade", "PDSI", "temp_summer", "temp_winter", "precip_summer", "precip_winter", "ongoing_wars", "Deaths"
 ))
 
 # Initialize empty list to collect IRFs
@@ -469,7 +469,7 @@ ggsave("../figures/plots/IRF_ENSO_federico.pdf", device = cairo_pdf, dpi=300)
 ## Allen IRF
 
 ```{r}
-wheat_dta <- read_dta('../processed data/wheatprices_dataset.dta') %>%
+wheat_dta <- read_dta('../data/wheatprices_dataset.dta') %>%
   left_join(data_region %>% 
               dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
             by = c("year" = "Year")) %>%
@@ -482,7 +482,7 @@ wheat_dta <- read_dta('../processed data/wheatprices_dataset.dta') %>%
 ```{r}
 control_dict <- list(
   "Base" = "decade",
-  "Climate" = c("decade", "PDSI_europe", "growseasontemp", "meantemp", "growseasonrain", "NAO_cal", "JSL"),
+  "Climate" = c("decade", "PDSI_europe", "growseasontemp", "meantemp", "growseasonrain"),
   "Conflict" = c("decade", "ongoing_wars", "Deaths"),
   "Climate + Conflict" = c("decade", "PDSI_europe", "growseasontemp", "meantemp", "growseasonrain", "ongoing_wars", "Deaths")
 )
@@ -545,6 +545,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
     breaks = 0:max(irfs_full$horizon),
     labels = 0:max(irfs_full$horizon)
   ) +
+  
   # Colors and linetypes
   scale_color_manual(values = c(
     "Base" = "black",      
@@ -885,11 +886,11 @@ ggsave("../figures/plots/IRF_subsample_20years_price.pdf", width = 12, height = 
 ## Check SEs
 
 ```{r}
-est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-est2 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
-est3 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est1 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
 
-est4 <- feols(logprice ~ Year + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = cluster~ Location+Year)
+est4 <- feols(logprice ~ Year:Location + l(nino34,0:3)  + i(Decade)| Location , data = data, panel.id = c("Location", "Year"), vcov = cluster~ Location+Year)
 
 dict = c(
   "nino34" = "nino 3.4 T",
@@ -910,12 +911,12 @@ dict = c(
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict)
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        label = "tab:grainprice_SEcheck",
           title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Prices under different Standard Errors",
@@ -1072,7 +1073,7 @@ ggsave("../figures/plots/IRF_ENSO_price_bootstrap_shuffle.pdf", device = cairo_p
 
 ```{r}
 # Step 1: Read and merge data
-yield_dta <- read_dta('../processed data/yieldratio_dataset.dta') %>%
+yield_dta <- read_dta('../data/yieldratio_dataset.dta') %>%
   left_join(data_region %>% 
               dplyr::select(Year, nino34,nino12,nino3,nino4, PDSI_europe, NAO_cal, JSL,Deaths,ongoing_wars,Death_ratio,precip_summer_europe), 
             by = c("year" = "Year")) %>%
@@ -1085,13 +1086,6 @@ yield_dta <- yield_dta %>%
     filter(unique_sumtotal >= 10, year <= 1800) 
   
 
-#print number of yuears for each fid
-yield_dta %>%
-  group_by(fid) %>%
-  summarise(years = n_distinct(year)) %>%
-  arrange(desc(years)) %>%
-  ungroup() %>%
-  filter(years > 1)
 ```
 
 
@@ -1250,7 +1244,7 @@ ggsave("../figures/plots/IRF_ENSO_yield63.pdf", device = cairo_pdf, dpi=300)
 ## Yield Ljungqvist
 
 ```{r}
-yield_2023 <- read.csv('../processed data/yield_ljungqvist_2025.csv') %>% 
+yield_2023 <- read.csv('../data/yield_ljungqvist_2025.csv') %>% 
   mutate(decade = floor(Year / 10) * 10) %>% 
   dplyr::select(VarLocationGrain, Year,decade, everything()) 
 
@@ -1385,26 +1379,26 @@ etable(est1, est2,est3)
 
 
 
-## FE
+## FE-DL
 
 
 
 
 ```{r}
-est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
+est1 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
 
-est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+est2 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
 
 
-est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+est3 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
 
-est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
+est4 <- feols(logyield ~ Year:LocationGrain + l(nino34,0:3):i(teleco_PDSI_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
 
 etable(est1, est2,est3,est4,
        keep = c("nino"),
        vcov = DK ~ Year,
        
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"))
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"))
 
 
 dict = c(
@@ -1422,7 +1416,7 @@ dict = c(
   "teleco_PDSI_10" = "scPDSI Teleconnection",
   "NAO_cal" = "NAO",
   "JSL" = "JSL",
-  "logyield" = "Log Grain Tithe")
+  "logyield" = "Log Grain Harvest")
 
 etable(est1, est2, est3,est4,
        keep = "nino",
@@ -1439,20 +1433,20 @@ etable(est1, est2, est3,est4,
 ```
 
 ```{r}
-est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
+est1 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = ~VarLocationGrain + Year)
 
-est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+est2 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + PDSI  + temp_summer + temp_winter + precip_summer+ precip_winter| VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
 
 
-est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
+est3 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) | VarLocationGrain, data = yield_2023 %>%  filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"))
 
-est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
+est4 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade) + ongoing_wars + log(1+Deaths) + temp_summer_europe + temp_winter_europe + precip_summer_europe + precip_winter_europe | VarLocationGrain, data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain","Year"))
 
 etable(est1, est2,est3,est4,
        keep = c("nino"),
        vcov = DK ~ Year,
        
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"))
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"))
 
 
 dict = c(
@@ -1470,7 +1464,7 @@ dict = c(
   "teleco_precip_summer_10" = "AMJJ Precip. Teleconnection",
   "NAO_cal" = "NAO",
   "JSL" = "JSL",
-  "logyield" = "Log Grain Tithe")
+  "logyield" = "Log Grain Harvest")
 
 etable(est1, est2, est3,est4,
        keep = "nino",
@@ -1492,10 +1486,10 @@ etable(est1, est2, est3,est4,
 ## Check SE
 
 ```{r}
-est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
-est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
-est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
-est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter( Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
+est1 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
+est2 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_PDSI_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter( Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
 
 
 dict = c(
@@ -1513,16 +1507,16 @@ dict = c(
   "teleco_PDSI_10" = "scPDSI Teleco.",
   "NAO_cal" = "NAO",
   "JSL" = "JSL",
-  "logyield" = "Log Grain Yield")
+  "logyield" = "Log Grain Harvest")
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict)
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        label = "tab:SEs_ENSO_yieldPDSI",
        drop.section = "fixef",
@@ -1531,7 +1525,7 @@ etable(est1, est2, est3,est4,
                    "Record-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
                                          "Two-way Clustered")),
-      notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level.",
+      notes= "\\small Two-way clustered standard errors at the Record-Location-Grain and Year level.",
        file = "../figures/tables/SEs_ENSO_yieldPDSI.tex",
        replace = TRUE)
 ```
@@ -1539,10 +1533,10 @@ etable(est1, est2, est3,est4,
 
 
 ```{r}
-est1 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
-est2 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
-est3 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
-est4 <- feols(logyield ~ Year + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
+est1 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10) + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")) , panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year)
+est2 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logyield ~ Year:Location + l(nino34,0:3):i(teleco_precip_summer_10)  + i(decade)| VarLocationGrain , data = yield_2023 %>% filter(Grain %in% c("Wheat","Rye")), panel.id = c("VarLocationGrain", "Year"), vcov = cluster~ loc_id+Year)
 
 
 dict = c(
@@ -1564,21 +1558,21 @@ dict = c(
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict)
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        label = "tab:SEs_ENSO_WR",
        drop.section = "fixef",
       title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Grain Harvests (Rye and Barley) under different Standard Errors",
        extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
-                   "Record-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
+                   "Proxy-Location-Grain Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Standard Errors" = c("Driscoll-Kray (L=4)", "Conley (200 km)","Conley (500 km)",
                                          "Two-way Clustered")),
-      notes= "\\small Two-way clustered standard errors at the Location-Grain and Year level.",
+      notes= "\\small Two-way clustered standard errors at the Record-Location-Grain and Year level.",
        file = "../figures/tables/SEs_ENSO_yieldPrecip.tex",
        replace = TRUE)
 ```
@@ -2710,7 +2704,7 @@ ggsave("../figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo
 
 
 ```{r}
-fishprice <- read.csv('../processed data/fishprice_enso.csv') %>% 
+fishprice <- read.csv('../data/fishprice_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>%
   dplyr::select(LocationSpecies,Year, Decade, everything()) 
 ```
@@ -2737,21 +2731,21 @@ datasummary(
 
 ```
 
-
+## FE-DL
 
 
 ```{r}
-est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
-est2 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL | Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
-est3 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
-est4 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + NAO_cal + JSL + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est1 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter  | Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est3 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade) + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est4 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade) + PDSI + temp_summer + temp_winter +precip_summer + precip_winter + ongoing_wars + log(1+Deaths) | Location, data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
 
 
 
 etable(est1, est2, est3,est4,
        keep = "nino",
 vcov = DK~Year,
-fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+fitstat = c("AIC","BIC", "N", "r2", "wr2"),
 drop.section = "fixef",
 extralines = list("Decade Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
                    "Location-Species Fixed Effects" = c("Yes", "Yes", "Yes", "Yes"),
@@ -2779,7 +2773,7 @@ etable(est1, est2, est3,est4,
        vcov = DK ~ Year,
       keep = "nino",
     label = "tab:fishprice_FE",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        drop.section = "fixef",                              
     title = "Effect of a 1°C Anomaly in the Nino 3.4 Index on Fish Prices",
@@ -2796,10 +2790,10 @@ etable(est1, est2, est3,est4,
 ## Check SEs
 
 ```{r}
-est1 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
-est2 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
-est3 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
-est4 <- feols(logprice ~ Year + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = cluster~ Location+Year)
+est1 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = DK ~ Year)
+est2 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov =  vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=200))
+est3 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = vcov_conley(lat=~Latitude,lon=~Longitude,cutoff=500))
+est4 <- feols(logprice ~ Year:Location + l(nino34,0:3) + i(Decade)| Location , data = fishprice, panel.id = c("LocationSpecies", "Year"), vcov = cluster~ Location+Year)
 
 dict = c(
   "nino34" = "nino3.4 T",
@@ -2819,12 +2813,12 @@ dict = c(
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict)
 
 etable(est1, est2, est3,est4,
        keep = "nino",
-       fitstat = c("AIC","BIC", "N", "r2", "ar2"),
+       fitstat = c("AIC","BIC", "N", "r2", "wr2"),
        dict = dict,
        label = "tab:SEs_fishprice",
        drop.section = "fixef",
@@ -3482,7 +3476,7 @@ writeLines(latex_table, "../figures/tables/granger_enso.tex")
 # 5. Fish catches
 
 ```{r}
-fishcatch <- read.csv('../processed data/fishcatch_enso.csv') %>% 
+fishcatch <- read.csv('../data/fishcatch_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>%
   dplyr::select(TypeLocation,Year, Decade, everything()) # %>% 
   #filter(Catch > 0) 
