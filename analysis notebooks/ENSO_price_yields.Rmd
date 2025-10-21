@@ -3433,9 +3433,9 @@ grangertest(avg_price ~ avg_nino34, data = avg_fishprice, order = 1)
 ```{r}
 # Run Granger tests and collect p-values
 results <- tibble::tibble(
-  Variable = c("Grain Price (all regions)", "Grain Price (all regions)",
+  Variable = c("Grain Price (all cities)", "Grain Price (all cities)",
                "Harvests (Teleconnected)", "Harvests (Teleconnected)",
-               "Fish Price (all locations)", "Fish Price (all locations)"),
+               "Fish Price (all cities)", "Fish Price (all cities)"),
 Direction = c(
   "Grain Price → NINO3.4",    
   "NINO3.4 → Grain Price",     
