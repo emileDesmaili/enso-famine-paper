@@ -592,7 +592,7 @@ ggplot(irfs_full, aes(x = horizon, color = controls, fill = controls)) +
   ) 
 
 #save
-ggsave("../figures/plots/IRF_ENSO_wheatprice.pdf", device = cairo_pdf, dpi=300)
+ggsave("../figures/plots/figA_irf_wheatprice.pdf", device = cairo_pdf, dpi=300)
 ```
 
 
@@ -1989,7 +1989,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("../figures/plots/IRF_ENSO_yield_WR_telecoAMJJ_P.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/figA_irf_yield_WR_AMJJ_P.pdf", device = cairo_pdf, dpi = 300)
 ```
 ## IRF NDJF P
 
@@ -2122,7 +2122,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("../figures/plots/IRF_ENSO_yield_telecoNDJF_P.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/figA_irf_yield_NDJF_P.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -2258,7 +2258,7 @@ ggplot(irfs_full, aes(x = horizon, y = irf_mean, color = label, fill = label, li
   )
 
 # Save plot
-ggsave("../figures/plots/IRF_ENSO_yield_telecoNDJF_T.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/figA_irf_yield_NDJF_T.pdf", device = cairo_pdf, dpi = 300)
 ```
 
 
@@ -3602,7 +3602,7 @@ ggplot(irfs_dual, aes(x = horizon, color = shock, fill = shock)) +
   )
 
 
-ggsave("../figures/plots/IRF_catches.pdf", device = cairo_pdf, dpi = 300)
+ggsave("../figures/plots/figA_irf_catches.pdf", device = cairo_pdf, dpi = 300)
 
 ```
 
