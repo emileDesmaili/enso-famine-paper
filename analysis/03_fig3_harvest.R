@@ -30,6 +30,8 @@ suppressPackageStartupMessages({
   library(future)
 })
 
+setFixest_notes(FALSE)
+
 # ── paths ─────────────────────────────────────────────────────────────────────
 .script_dir <- function() {
   args     <- commandArgs(trailingOnly = FALSE)
@@ -70,9 +72,9 @@ run_lp <- function(df, endog, shock = "nino34",
   )
 }
 
-extract_irf <- function(res, label) {
+extract_irf <- function(res, label, n_loc = NA_integer_) {
   res |>
-    transmute(label = label, horizon, irf_mean, irf_up, irf_down)
+    transmute(label = label, n_loc = n_loc, horizon, irf_mean, irf_up, irf_down)
 }
 
 irf_teleco_loop <- function(df, endog, hor_max,
@@ -91,7 +93,8 @@ irf_teleco_loop <- function(df, endog, hor_max,
     cond   <- conditions[[label]]
     df_sub <- if (!is.null(cond)) df |> filter(!!rlang::parse_expr(cond)) else df
     ctrl   <- if (label == "Teleco w. controls") controls_full else "decade"
-    extract_irf(run_lp(df_sub, endog, controls = ctrl, hor = hor_max), label)
+    n_loc  <- dplyr::n_distinct(df_sub$VarLocationGrain)
+    extract_irf(run_lp(df_sub, endog, controls = ctrl, hor = hor_max), label, n_loc)
   }))
 }
 
@@ -151,7 +154,7 @@ run_lp_se_robust <- function(df, endog, shock = "nino34",
     # Spatial Conley vcov (lat/lon must be in data)
     v_conley <- tryCatch(
       vcov(mod, vcov = vcov_conley(lat = lat_col, lon = lon_col,
-                                   cutoff = 5, distance = "spherical")),
+                                   cutoff = 500, distance = "spherical")),
       error = function(e) NULL
     )
     v_nw     <- vcov(mod, vcov = NW ~ Year)
@@ -321,6 +324,81 @@ export_bootstrap_WR <- function(yield_2023, n_iter = 1000) {
 
 
 ###############################################################################
+# Appendix: Yield IRF under different teleconnection partitions
+# Reproduces: IRF_ENSO_yield_WR_teleco, IRF_ENSO_yield_noWR_teleco,
+#             figA_irf_yield_WR_AMJJ_P, figA_irf_yield_NDJF_P, figA_irf_yield_NDJF_T
+###############################################################################
+export_yield_teleco_plots <- function(yield_2023) {
+  WR   <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  noWR <- yield_2023 |> filter(!Grain %in% c("Wheat", "Rye"))
+
+  plot_teleco <- function(df, teleco_col, title_lab, file_name) {
+    df_irf <- irf_teleco_loop(df, "logyield", hor_max = 3,
+                               teleco_col = teleco_col)
+    n_ctrl  <- length(unique(df_irf$label))
+    offsets <- seq(-0.12, 0.12, length.out = n_ctrl)
+    df_irf  <- df_irf |>
+      dplyr::group_by(label) |>
+      dplyr::mutate(offset = offsets[dplyr::cur_group_id()]) |>
+      dplyr::ungroup()
+
+    p <- ggplot(df_irf, aes(x = horizon + offset, y = irf_mean, color = label)) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
+      geom_errorbar(aes(ymin = irf_down, ymax = irf_up), width = 0, linewidth = 0.9) +
+      geom_point(size = 2.5) +
+      scale_x_continuous(breaks = scales::pretty_breaks()) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+      scale_color_manual(values = c(
+        "All regions"        = "black",
+        "Teleconnected"      = "firebrick",
+        "Weakly affected"    = "cornflowerblue",
+        "Teleco w. controls" = "orange"
+      )) +
+      labs(x = "Horizon (years)", y = title_lab, color = NULL) +
+      theme_classic(base_size = 18) +
+      theme(panel.grid = element_blank(), legend.position = "bottom") +
+      guides(color = guide_legend(nrow = 2, byrow = TRUE))
+
+    ggsave(file.path(fig_out, file_name), p,
+           width = 6, height = 5, device = cairo_pdf)
+    message("Saved ", file_name)
+    invisible(df_irf)
+  }
+
+  # PDSI partition (Wheat/Rye and non-WR)
+  irf_wr <- plot_teleco(WR, "teleco_PDSI_10",
+                         "% Harvest response",
+                         "IRF_ENSO_yield_WR_teleco.pdf")
+  write.csv(irf_wr, file.path(out_data, "figA_irf_yield_WR_teleco.csv"), row.names = FALSE)
+
+  plot_teleco(noWR, "teleco_PDSI_10",
+              "% Harvest response",
+              "IRF_ENSO_yield_noWR_teleco.pdf")
+
+  # Summer precipitation (AMJJ) partition
+  if ("teleco_precip_summer_10" %in% names(yield_2023)) {
+    plot_teleco(WR, "teleco_precip_summer_10",
+                "% Harvest response\n(AMJJ Precip. partition)",
+                "figA_irf_yield_WR_AMJJ_P.pdf")
+  }
+
+  # Winter precipitation (NDJF) partition
+  if ("teleco_precip_winter_10" %in% names(yield_2023)) {
+    plot_teleco(WR, "teleco_precip_winter_10",
+                "% Harvest response\n(NDJF Precip. partition)",
+                "figA_irf_yield_NDJF_P.pdf")
+  }
+
+  # Winter temperature (NDJF) partition
+  if ("teleco_temp_winter_10" %in% names(yield_2023)) {
+    plot_teleco(WR, "teleco_temp_winter_10",
+                "% Harvest response\n(NDJF Temp. partition)",
+                "figA_irf_yield_NDJF_T.pdf")
+  }
+}
+
+
+###############################################################################
 # Regression table (appendix)
 ###############################################################################
 save_yield_table <- function(yield_2023) {
@@ -395,7 +473,7 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)", y = y_label) +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank())
 }
 
@@ -409,16 +487,16 @@ plot_loo_WR <- function() {
   base <- read.csv(base_path) |> dplyr::filter(label == "All regions")
   loc  <- read.csv(loc_path)
   y20  <- read.csv(y20_path)
-  y_lab <- "% Wheat/Rye harvest response to 1\u00b0C NINO3.4 shock"
+  y_lab <- "% Harvest response"
 
   ggsave(file.path(fig_out, "figA_irf_loo_loc_WR.pdf"),
          .loo_overlay_plot(base, loc, "subsample", y_lab),
-         width = 9, height = 6, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_loo_loc_WR.pdf")
 
   ggsave(file.path(fig_out, "figA_irf_loo_20y_WR.pdf"),
          .loo_overlay_plot(base, y20, "block", y_lab),
-         width = 9, height = 6, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_loo_20y_WR.pdf")
 }
 
@@ -439,12 +517,12 @@ plot_ninocheck_WR <- function() {
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)",
-         y = "% Wheat/Rye harvest response to 1\u00b0C shock",
+         y = "% Harvest response",
          color = "ENSO index") +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank(), legend.position = "bottom")
   ggsave(file.path(fig_out, "figA_irf_ninocheck_WR.pdf"), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_ninocheck_WR.pdf")
 }
 
@@ -465,12 +543,12 @@ plot_yield63 <- function() {
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)",
-         y = "% Grain harvest response to 1\u00b0C NINO3.4 shock",
+         y = "% Harvest response",
          color = "Controls") +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank(), legend.position = "bottom")
   ggsave(file.path(fig_out, "figA_irf_yield63.pdf"), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_yield63.pdf")
 }
 
@@ -495,12 +573,12 @@ plot_bootstrap_WR <- function() {
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)",
-         y = "% Wheat/Rye harvest response to 1\u00b0C NINO3.4 shock",
+         y = "% Harvest response",
          caption = "Blue band: 95% permutation null interval. Black line: true IRF.") +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank())
   ggsave(file.path(fig_out, "figA_irf_bootstrap_WR.pdf"), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_bootstrap_WR.pdf")
 }
 
@@ -514,17 +592,17 @@ plot_se_robust_WR <- function() {
     geom_errorbar(aes(ymin = irf_down, ymax = irf_up),
                   color = "black", width = 0.15, linewidth = 0.9) +
     geom_point(color = "black", size = 2.5) +
-    facet_wrap(~ se_type, ncol = 2) +
+    facet_wrap(~ se_type, ncol = 4) +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)",
-         y = "% Wheat/Rye harvest response to 1\u00b0C NINO3.4 shock") +
-    theme_classic(base_size = 13) +
+         y = "% Harvest response") +
+    theme_classic(base_size = 18) +
     theme(strip.background = element_blank(),
           strip.text       = element_text(face = "bold"),
           panel.grid       = element_blank())
   ggsave(file.path(fig_out, "figA_irf_serobust_WR.pdf"), p,
-         width = 9, height = 7, device = cairo_pdf)
+         width = 10, height = 4, device = cairo_pdf)
   message("Saved figA_irf_serobust_WR.pdf")
 }
 
@@ -548,6 +626,7 @@ if (!interactive()) {
   plot_yield63()
   plot_bootstrap_WR()
   plot_se_robust_WR()
+  export_yield_teleco_plots(yield_2023)
   message("Fig 3 data exports complete.")
 } else {
   message("Call functions interactively or source this script.")

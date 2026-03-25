@@ -62,13 +62,14 @@ suppressPackageStartupMessages(suppressWarnings(library(stargazer)))
 suppressPackageStartupMessages(suppressWarnings(library(finalfit)))
 suppressPackageStartupMessages(suppressWarnings(library(modelsummary)))
 suppressPackageStartupMessages(suppressWarnings(library(ggtext)))
+suppressPackageStartupMessages(suppressWarnings(library(useful)))
 
 ```
 
 # Data
 ```{r}
 
-data <- read.csv("../ processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10) %>% 
+data <- read.csv("../processed data/famine_region_data.csv") %>% mutate(Decade = floor(Year/10)*10) %>% 
   #sort years within region
   arrange(Region, Year) 
 
@@ -1474,6 +1475,66 @@ baseline_central <- unique(loo_central$full_estimate)
   geom_vline(xintercept = 0, linetype = "dashed", color = "black")
  
  ggsave("../figures/plots/loo_lpm_onset.pdf", device = cairo_pdf)
+```
+
+
+# ED: non linearity
+
+
+```{r, fig.width=10, fig.height=4}
+#--- Estimate models ---
+m_lin <- feols(
+  Famine_start ~ nino34  | Region,
+  data = data %>% filter(Region == "Central Europe"),
+  vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+m_p2 <- feols(
+  Famine_start ~ poly(nino34, 2, raw = TRUE) |Region ,
+  data = data %>% filter(Region == "Central Europe"),
+  vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+m_p3 <- feols(
+  Famine_start ~ poly(nino34, 3, raw = TRUE) | Region,
+  data = data %>% filter(Region == "Central Europe"),
+  vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+#--- Predictions ---
+rf_lin <- useful::predict_poly(m_lin, "nino34", min = -1, max = 2,
+                              ref = 0, step.length = 0.01,
+                              xvar_name = "nino34") %>%
+  mutate(spec = "Linear")
+
+rf_p2 <- useful::predict_poly(m_p2, "nino34", min = -1, max = 2,
+                             ref = 0, step.length = 0.01,
+                             xvar_name = "nino34") %>%
+  mutate(spec = "Quadratic")
+
+rf_p3 <- useful::predict_poly(m_p3, "nino34", min = -1, max = 2,
+                             ref = 0, step.length = 0.01,
+                             xvar_name = "nino34") %>%
+  mutate(spec = "Cubic")
+
+rf_all <- bind_rows(rf_lin, rf_p2, rf_p3)
+
+#--- Plot ---
+ggplot(rf_all, aes(x = nino34, y = response)) +
+  geom_line(color = "cornflowerblue", size = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper),
+              fill = "cornflowerblue", alpha = 0.25) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~spec, nrow = 1) +
+  labs(
+    x = "NINO3.4 Index",
+    y = "Estimated Effect on Famine Start Probability"
+  ) +
+  theme_classic(base_size = 15)
+ggsave("../figures/plots/nonlinearity_onset.pdf", device = cairo_pdf)
 ```
 
 

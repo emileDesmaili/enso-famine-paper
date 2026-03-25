@@ -331,7 +331,7 @@ save_granger_table <- function() {
     mutate(Decade = floor(Year / 10) * 10) %>% drop_na() %>% distinct()
   fishprice <- read.csv(file.path(DATA_PROC, "fishprice_enso.csv")) %>% drop_na()
   yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_2025.csv")) %>%
-    filter(Grain %in% c("Wheat", "Rye")) %>% drop_na()
+    filter(Grain %in% c("Wheat", "Rye"))
 
   # Annual averages for panel Granger tests
   ljunqgvist_avg <- data %>%
@@ -348,7 +348,7 @@ save_granger_table <- function() {
               .groups = "drop")
 
   avg_fishprice <- fishprice %>%
-    group_by(Year) %>%
+    group_by(Location, Year) %>%
     summarise(avg_price  = mean(logprice, na.rm = TRUE),
               avg_nino34 = mean(nino34,   na.rm = TRUE),
               .groups = "drop")
@@ -381,7 +381,7 @@ save_granger_table <- function() {
       granger_p(avg_price  ~ avg_nino34, avg_fishprice,       order = 1)
     )
   ) %>%
-    mutate(p_value = round(p_value, 4))
+    mutate(p_value = round(p_value, 3))
 
   latex_table <- knitr::kable(
     results,

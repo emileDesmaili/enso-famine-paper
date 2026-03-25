@@ -1,12 +1,15 @@
 """
-Figure 1: ENSO and famines in early modern Europe  (Nature-style combined panel)
-Panels:
+SUPERSEDED – Figure 1 is now produced by assemble_figures.py (make_fig1).
+This standalone script is kept for reference only and is NOT called by run_all.py.
+
+The canonical pipeline is:
+    Rscript analysis/run_all.R
+    python  analysis/run_all.py   # calls assemble_figures.py
+
+Figure 1 panels:
   A – NINO3.4 timeseries with shaded famine events
   B – Regional famine chronology (Gantt) + count of regions with famine
   C – Geographic bar-map of famine years and periods per region
-
-Output → analysis/output/figures/main/fig1_combined.pdf
-Individual panels also saved as fig1A/B/C_*.pdf for flexibility.
 """
 
 import pandas as pd
