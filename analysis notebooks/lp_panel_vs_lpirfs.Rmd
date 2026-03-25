@@ -1,0 +1,614 @@
+---
+title: "lp_panel vs lp_lin_panel – reconciliation"
+output: html_notebook
+editor_options:
+  chunk_output_type: inline
+---
+
+**Root cause:** 11 LocationSpecies series have year gaps (up to 73 years).
+`dplyr::lead(y, h)` in `lp_lin_panel` shifts rows positionally, so a gap year
+counts as h steps forward. `fixest`'s `f(y, h)` uses actual year values via
+`panel.id`, so it correctly skips to calendar year t+h.
+
+**Two fixes tested:**
+
+1. **Drop gapped series** — run both estimators on the balanced subsample
+2. **Expand to balanced panel** — fill gaps with `NA` rows so `dplyr::lead`
+   lands on the same observations as `fixest`'s `f()`
+
+Fix 2 is preferable: it uses all data in `lp_panel` while making `lp_lin_panel`
+match exactly.
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(fixest)
+  library(lpirfs)
+  library(patchwork)
+})
+source("../emileRegs.R")
+setFixest_notes(FALSE)
+```
+
+## Data + gap diagnosis
+
+```{r data}
+fishprice_raw <- read.csv("../processed data/fishprice_enso.csv") %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  arrange(LocationSpecies, Year)
+
+# Identify series with any year gaps
+gap_summary <- fishprice_raw %>%
+  group_by(LocationSpecies) %>%
+  mutate(gap = Year - lag(Year)) %>%
+  summarise(
+    max_gap  = max(gap, na.rm = TRUE),
+    n_gaps   = sum(gap > 1, na.rm = TRUE),
+    n_obs    = n(),
+    .groups  = "drop"
+  ) %>%
+  arrange(desc(max_gap))
+
+cat("Series with gaps:\n")
+print(gap_summary %>% filter(n_gaps > 0))
+
+# Series with a gap >= 10 years are dropped: the within-entity mean is
+# meaningless across such a break, and at horizon h fixest's f() would
+# also cross the gap for some t. Threshold = max horizon (10 years).
+keep_series <- gap_summary %>% filter(max_gap < 10) %>% pull(LocationSpecies)
+drop_series <- gap_summary %>% filter(max_gap >= 10) %>% pull(LocationSpecies)
+
+cat("\nDropped (max_gap >= 10 yrs):", length(drop_series), "\n")
+print(drop_series)
+cat("Kept:", length(keep_series), "\n")
+```
+
+## Fix – drop max_gap >= 10 series, then balance remaining gaps with NA rows
+
+```{r fix-data}
+# Step 1: drop series with large breaks
+fishprice_dropped <- fishprice_raw %>%
+  filter(LocationSpecies %in% keep_series)
+
+# Step 2: fill remaining small gaps (< 10 yrs) with NA rows so dplyr::lead
+# lands on the same calendar year as fixest's f()
+fishprice_fixed <- fishprice_dropped %>%
+  group_by(LocationSpecies) %>%
+  complete(Year = full_seq(Year, 1)) %>%
+  ungroup() %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  arrange(LocationSpecies, Year)
+
+cat("Rows after fix:",  nrow(fishprice_fixed),
+    "from", n_distinct(fishprice_fixed$LocationSpecies), "units\n")
+cat("(vs", nrow(fishprice_raw), "original rows from",
+    n_distinct(fishprice_raw$LocationSpecies), "units)\n")
+
+cat("Rows in balanced panel:", nrow(fishprice_balanced),
+    "(vs", nrow(fishprice_raw), "original)\n")
+```
+
+## Run all specs
+
+```{r run, cache=TRUE, message=FALSE, warning=FALSE}
+HOR <- 10
+
+run_fixest <- function(df, label) {
+  lp_panel(
+    data         = df,
+    outcome      = "logprice",
+    main_var     = "nino34",
+    controls     = "1",
+    horizon      = HOR,
+    fe           = "LocationSpecies + Decade",
+    panel_id     = c("LocationSpecies", "Year"),
+    vcov_formula = DK ~ Year
+  ) %>% mutate(spec = label)
+}
+
+# Matches plm exactly on full sample: pre-compute LHS using positional
+# dplyr::lead/lag (grouped by entity, sorted by year), then regress with
+# feols using no panel.id — so fixest treats f()/l() the same way plm does.
+run_fixest_positional <- function(df, label) {
+  df <- df %>% arrange(LocationSpecies, Year)
+
+  map_dfr(0:HOR, function(h) {
+    df_h <- df %>%
+      group_by(LocationSpecies) %>%
+      mutate(.lhs = lead(logprice, h) - lag(logprice, 1)) %>%
+      ungroup() %>%
+      filter(!is.na(.lhs), !is.na(nino34))
+
+    fml <- as.formula(".lhs ~ nino34 | LocationSpecies + Decade")
+    mod  <- feols(fml, data = df_h, vcov = DK ~ Year)
+    beta <- coef(mod)["nino34"]
+    se   <- sqrt(vcov(mod)["nino34", "nino34"])
+    tibble(horizon = h, irf_mean = beta, se = se,
+           irf_down = beta - 1.96*se, irf_up = beta + 1.96*se,
+           spec = label)
+  })
+}
+
+run_plm <- function(df, label) {
+  res <- lp_lin_panel(
+    data_set     = df %>%
+      mutate(Decade = as.factor(Decade)) %>%
+      dplyr::select(LocationSpecies, Year, logprice, nino34, Decade),
+    endog_data   = "logprice",
+    cumul_mult   = TRUE,
+    shock        = "nino34",
+    diff_shock   = FALSE,
+    panel_model  = "within",
+    panel_effect = "individual",
+    c_exog_data  = "Decade",
+    robust_cov   = "vcovSCC",
+    confint      = 1.96,
+    hor          = HOR + 1
+  )
+  tibble(
+    horizon  = 0:HOR,
+    irf_mean = as.numeric(res$irf_panel_mean[1, 1:(HOR+1)]),
+    irf_up   = as.numeric(res$irf_panel_up[1,   1:(HOR+1)]),
+    irf_down = as.numeric(res$irf_panel_low[1,  1:(HOR+1)]),
+    spec     = label
+  )
+}
+
+irf_fixest_orig  <- run_fixest(fishprice_raw,            "fixest – original (calendar)")
+irf_plm_orig     <- run_plm(fishprice_raw,               "plm – original")
+irf_fixest_pos   <- run_fixest_positional(fishprice_raw, "fixest – positional lead (full sample)")
+irf_fixest_fixed <- run_fixest(fishprice_fixed,          "fixest – drop ≥10yr gaps + balance")
+irf_plm_fixed    <- run_plm(fishprice_fixed,             "plm – drop ≥10yr gaps + balance")
+```
+
+## Difference tables
+
+```{r tables}
+make_diff_table <- function(irf_a, irf_b, label_a, label_b) {
+  inner_join(
+    irf_a %>% dplyr::select(horizon, irf_mean) %>% rename(a = irf_mean),
+    irf_b %>% dplyr::select(horizon, irf_mean) %>% rename(b = irf_mean),
+    by = "horizon"
+  ) %>%
+    mutate(diff = round(a - b, 6),
+           !!label_a := round(a, 6),
+           !!label_b := round(b, 6)) %>%
+    dplyr::select(horizon, !!label_a, !!label_b, diff)
+}
+
+cat("── Original: fixest calendar vs plm positional (should differ) ──\n")
+print(make_diff_table(irf_fixest_orig,  irf_plm_orig,  "fixest_cal", "plm"))
+
+cat("\n── fixest positional vs plm (full sample, should match) ──\n")
+print(make_diff_table(irf_fixest_pos,   irf_plm_orig,  "fixest_pos", "plm"))
+
+cat("\n── Robustness: drop ≥10yr gaps + balance ──\n")
+print(make_diff_table(irf_fixest_fixed, irf_plm_fixed, "fixest_fix", "plm_fix"))
+```
+
+## Plot
+
+```{r plot, fig.width=7, fig.height=4}
+all_irf <- bind_rows(
+  irf_fixest_orig, irf_plm_orig, irf_fixest_pos,
+  irf_fixest_fixed, irf_plm_fixed
+) %>%
+  mutate(
+    estimator = case_when(
+      grepl("positional", spec) ~ "fixest positional",
+      grepl("fixest",     spec) ~ "fixest calendar",
+      TRUE                      ~ "plm"
+    ),
+    dataset = case_when(
+      grepl("original|positional", spec) ~ "Full sample",
+      TRUE                               ~ "Drop ≥10yr gaps + balance"
+    ),
+    dataset = factor(dataset, levels = c("Full sample", "Drop ≥10yr gaps + balance"))
+  )
+
+ggplot(all_irf, aes(horizon, irf_mean, colour = estimator, linetype = estimator)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up, fill = estimator),
+              alpha = 0.10, colour = NA) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3, linetype = "dashed") +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~dataset, nrow = 1) +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_manual(values = c("fixest calendar" = "#333333",
+                                  "fixest positional" = "#0072B2",
+                                  "plm" = "#D55E00")) +
+  scale_fill_manual(values   = c("fixest calendar" = "#333333",
+                                  "fixest positional" = "#0072B2",
+                                  "plm" = "#D55E00")) +
+  scale_linetype_manual(values = c("fixest calendar" = "solid",
+                                    "fixest positional" = "dashed",
+                                    "plm" = "dotdash")) +
+  labs(
+    x = "Horizon (years)",
+    y = "Effect on log fish prices",
+    title = "fixest vs plm: before and after gap fix"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    legend.title     = element_blank(),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  ) +
+  guides(colour = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)))
+```
+
+---
+
+## Optimal panel: maximal spatial & temporal coverage with minimal gaps
+
+The goal is to select the best panel — one series per location — trading off
+temporal span, spatial breadth, and gap severity.
+
+```{r optimal-panel}
+library(sf)
+
+# ── Per-series coverage statistics ────────────────────────────────────────────
+series_stats <- fishprice_raw %>%
+  arrange(LocationSpecies, Year) %>%
+  group_by(LocationSpecies, Location) %>%
+  summarise(
+    lat      = first(lat),
+    lon      = first(lon),
+    n_obs    = n(),
+    min_yr   = min(Year),
+    max_yr   = max(Year),
+    span     = max(Year) - min(Year) + 1,
+    n_gaps   = sum(diff(Year) > 1),
+    max_gap  = if_else(n() > 1, max(diff(Year)) - 1L, 0L),
+    gap_yrs  = sum(pmax(diff(Year) - 1, 0)),
+    density  = n_obs / span,
+    .groups  = "drop"
+  )
+
+# ── Score each series ──────────────────────────────────────────────────────────
+# Objectives (all on 0-1 scale after normalisation):
+#   + temporal span (longer is better)
+#   + observation density (fewer gaps relative to span)
+#   - max_gap (larger worst gaps penalised more heavily)
+#   + n_obs (raw count as tiebreaker)
+
+series_stats <- series_stats %>%
+  mutate(
+    score_span    = (span    - min(span))    / (max(span)    - min(span)),
+    score_density = (density - min(density)) / (max(density) - min(density)),
+    score_maxgap  = 1 - (max_gap - min(max_gap)) / (max(max_gap) - min(max_gap)),
+    score_nobs    = (n_obs  - min(n_obs))    / (max(n_obs)    - min(n_obs)),
+    # Weighted composite: penalise max_gap most heavily
+    score = 0.30 * score_span +
+            0.30 * score_density +
+            0.30 * score_maxgap +
+            0.10 * score_nobs
+  ) %>%
+  arrange(Location, desc(score))
+
+cat("All series ranked within location:\n")
+print(series_stats %>%
+  dplyr::select(LocationSpecies, Location, span, n_obs, max_gap, gap_yrs, density, score) %>%
+  mutate(across(c(density, score), ~ round(.x, 3))))
+
+# ── Pick best series per location ─────────────────────────────────────────────
+best_per_location <- series_stats %>%
+  group_by(Location) %>%
+  slice_max(score, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+cat("\nOptimal panel (one series per location):\n")
+print(best_per_location %>%
+  dplyr::select(LocationSpecies, Location, lat, lon, span, n_obs, max_gap, gap_yrs, density, score) %>%
+  mutate(across(c(density, score), ~ round(.x, 3))) %>%
+  arrange(lat))
+```
+
+```{r optimal-map, fig.width=6, fig.height=4}
+# ── Map of selected series ─────────────────────────────────────────────────────
+world <- map_data("world") %>%
+  filter(lat > 30, lat < 70, long > -15, long < 30)
+
+ggplot() +
+  geom_polygon(data = world, aes(long, lat, group = group),
+               fill = "grey92", colour = "grey70", linewidth = 0.2) +
+  geom_point(data = best_per_location,
+             aes(lon, lat, size = span, colour = max_gap),
+             shape = 21, stroke = 0.6, fill = "white") +
+  geom_point(data = best_per_location,
+             aes(lon, lat, size = span, colour = max_gap)) +
+  ggrepel::geom_label_repel(data = best_per_location,
+                             aes(lon, lat, label = Location),
+                             size = 3, label.padding = unit(0.15, "lines"),
+                             box.padding = 0.4, max.overlaps = 20) +
+  scale_colour_viridis_c(option = "plasma", direction = -1,
+                         name = "Max gap (yrs)") +
+  scale_size_continuous(range = c(3, 9), name = "Temporal span (yrs)") +
+  coord_fixed(xlim = c(-12, 26), ylim = c(35, 62)) +
+  labs(x = NULL, y = NULL,
+       title = "Optimal panel: best series per location",
+       subtitle = "Size = temporal span, colour = max gap (lower = better)") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "right")
+```
+
+```{r optimal-timeline, fig.width=7, fig.height=3.5}
+# ── Timeline of selected series ───────────────────────────────────────────────
+timeline_df <- fishprice_raw %>%
+  filter(LocationSpecies %in% best_per_location$LocationSpecies) %>%
+  group_by(LocationSpecies, Location) %>%
+  summarise(min_yr = min(Year), max_yr = max(Year), .groups = "drop") %>%
+  left_join(best_per_location %>% dplyr::select(LocationSpecies, max_gap, score), by = "LocationSpecies") %>%
+  arrange(lat) %>%
+  left_join(best_per_location %>% dplyr::select(LocationSpecies, lat), by = "LocationSpecies") %>%
+  mutate(Location = factor(Location, levels = Location))
+
+ggplot(timeline_df, aes(y = Location, colour = max_gap)) +
+  geom_segment(aes(x = min_yr, xend = max_yr, yend = Location), linewidth = 3) +
+  # mark actual observed years as ticks
+  geom_point(data = fishprice_raw %>%
+               filter(LocationSpecies %in% best_per_location$LocationSpecies) %>%
+               left_join(best_per_location %>% dplyr::select(LocationSpecies, max_gap), by = "LocationSpecies"),
+             aes(x = Year, y = Location),
+             shape = "|", size = 1.5, alpha = 0.4) +
+  scale_colour_viridis_c(option = "plasma", direction = -1, name = "Max gap (yrs)") +
+  scale_x_continuous(breaks = seq(1500, 1800, 50)) +
+  labs(x = "Year", y = NULL,
+       title = "Temporal coverage of optimal panel") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "right")
+```
+
+```{r optimal-irf, cache=TRUE, fig.width=6, fig.height=3.5}
+# ── IRF on optimal panel (calendar fixest, gold standard) ─────────────────────
+fishprice_optimal <- fishprice_raw %>%
+  filter(LocationSpecies %in% best_per_location$LocationSpecies)
+
+irf_optimal <- lp_panel(
+  data         = fishprice_optimal,
+  outcome      = "logprice",
+  main_var     = "nino34",
+  controls     = "1",
+  horizon      = HOR,
+  fe           = "LocationSpecies + Decade",
+  panel_id     = c("LocationSpecies", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(spec = "Optimal panel (calendar fixest)")
+
+# Compare to full-sample original
+ggplot(bind_rows(irf_fixest_orig, irf_optimal),
+       aes(horizon, irf_mean, colour = spec, fill = spec)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.12, colour = NA) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3, linetype = "dashed") +
+  geom_line(linewidth = 0.9) +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_manual(values = c("fixest – original (calendar)" = "#333333",
+                                  "Optimal panel (calendar fixest)" = "#0072B2")) +
+  scale_fill_manual(values   = c("fixest – original (calendar)" = "#333333",
+                                  "Optimal panel (calendar fixest)" = "#0072B2")) +
+  labs(x = "Horizon (years)", y = "Effect on log fish prices",
+       title = "Full sample vs optimal panel IRF") +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        strip.background = element_blank()) +
+  guides(colour = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)))
+```
+
+```{r loo-full, cache=TRUE, fig.width=7, fig.height=4}
+# ── Leave-one-location-out: full sample ───────────────────────────────────────
+locations_full <- unique(fishprice_raw$Location)
+
+loo_full <- map_dfr(locations_full, function(loc) {
+  lp_panel(
+    data         = fishprice_raw %>% filter(Location != loc),
+    outcome      = "logprice",
+    main_var     = "nino34",
+    controls     = "1",
+    horizon      = HOR,
+    fe           = "LocationSpecies + Decade",
+    panel_id     = c("LocationSpecies", "Year"),
+    vcov_formula = DK ~ Year
+  ) %>% mutate(left_out = loc)
+})
+
+ggplot(loo_full, aes(horizon, irf_mean, colour = left_out, fill = left_out, group = left_out)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.07, colour = NA) +
+  geom_line(linewidth = 0.6) +
+  # Baseline: full sample
+  geom_line(data = irf_fixest_orig, aes(horizon, irf_mean),
+            colour = "black", linewidth = 1.1, linetype = "dashed", inherit.aes = FALSE) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3, linetype = "dotted") +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_viridis_d(option = "turbo", name = "Left out") +
+  scale_fill_viridis_d(option = "turbo", name = "Left out") +
+  labs(x = "Horizon (years)", y = "Effect on log fish prices",
+       title = "Leave-one-location-out IRF – full sample",
+       subtitle = "Dashed black = full sample baseline") +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "right", strip.background = element_blank())
+```
+
+```{r loo-optimal, cache=TRUE, fig.width=7, fig.height=4}
+# ── Leave-one-location-out: optimal panel ─────────────────────────────────────
+locations_optimal <- unique(fishprice_optimal$Location)
+
+loo_optimal <- map_dfr(locations_optimal, function(loc) {
+  lp_panel(
+    data         = fishprice_optimal %>% filter(Location != loc),
+    outcome      = "logprice",
+    main_var     = "nino34",
+    controls     = "1",
+    horizon      = HOR,
+    fe           = "LocationSpecies + Decade",
+    panel_id     = c("LocationSpecies", "Year"),
+    vcov_formula = DK ~ Year
+  ) %>% mutate(left_out = loc)
+})
+
+ggplot(loo_optimal, aes(horizon, irf_mean, colour = left_out, fill = left_out, group = left_out)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.07, colour = NA) +
+  geom_line(linewidth = 0.6) +
+  geom_line(data = irf_optimal, aes(horizon, irf_mean),
+            colour = "black", linewidth = 1.1, linetype = "dashed", inherit.aes = FALSE) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3, linetype = "dotted") +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_viridis_d(option = "turbo", name = "Left out") +
+  scale_fill_viridis_d(option = "turbo", name = "Left out") +
+  labs(x = "Horizon (years)", y = "Effect on log fish prices",
+       title = "Leave-one-location-out IRF – optimal panel",
+       subtitle = "Dashed black = optimal panel baseline") +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "right", strip.background = element_blank())
+```
+
+---
+
+## Species-interacted IRFs
+
+```{r species-inter, cache=TRUE, fig.width=7, fig.height=4}
+# ── Species-interacted IRF: full sample & no-max-gap-10 ───────────────────────
+# fishprice_nogap: drop series with max_gap >= 10 (already computed above as
+# the series used in irf_fixest_fixed, before the NA-row balancing step)
+fishprice_nogap <- fishprice_raw %>%
+  filter(LocationSpecies %in% keep_series)
+
+run_inter <- function(df, label) {
+  lp_panel_inter(
+    data         = df,
+    outcome      = "logprice",
+    main_var     = "nino34",
+    interact_var = "Species",
+    controls     = NULL,
+    horizon      = HOR,
+    fe           = "LocationSpecies + Decade",
+    panel_id     = c("LocationSpecies", "Year"),
+    vcov_formula = DK ~ Year
+  ) %>% mutate(dataset = label)
+}
+
+irf_inter_full  <- run_inter(fishprice_raw,   "Full sample")
+irf_inter_nogap <- run_inter(fishprice_nogap, "No max-gap ≥ 10 yrs")
+
+irf_inter <- bind_rows(irf_inter_full, irf_inter_nogap) %>%
+  mutate(
+    dataset  = factor(dataset, levels = c("Full sample", "No max-gap ≥ 10 yrs")),
+    category = factor(category, levels = c("Cod", "Herring"))
+  )
+
+ggplot(irf_inter, aes(horizon, irf_mean, colour = category, fill = category)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.13, colour = NA) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3, linetype = "dashed") +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~dataset, nrow = 1) +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_manual(values = c(Cod = "#0072B2", Herring = "#D55E00")) +
+  scale_fill_manual(values   = c(Cod = "#0072B2", Herring = "#D55E00")) +
+  labs(
+    x      = "Horizon (years)",
+    y      = "Effect on log fish prices",
+    colour = "Species", fill = "Species",
+    title  = "Species-interacted IRF: ENSO × Cod vs Herring"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  ) +
+  guides(colour = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)))
+```
+
+```{r species-inter-loo, cache=TRUE, fig.width=9, fig.height=8}
+# ── LOO × species interaction ─────────────────────────────────────────────────
+# For each dataset: leave one location out, re-run interacted IRF,
+# collect all curves — shows which location drives the Cod vs Herring split
+
+run_loo_inter <- function(df, locations, label) {
+  map_dfr(locations, function(loc) {
+    tryCatch(
+      lp_panel_inter(
+        data         = df %>% filter(Location != loc),
+        outcome      = "logprice",
+        main_var     = "nino34",
+        interact_var = "Species",
+        controls     = NULL,
+        horizon      = HOR,
+        fe           = "LocationSpecies + Decade",
+        panel_id     = c("LocationSpecies", "Year"),
+        vcov_formula = DK ~ Year
+      ) %>% mutate(left_out = loc, dataset = label),
+      error = function(e) NULL
+    )
+  })
+}
+
+loo_inter_full  <- run_loo_inter(fishprice_raw,   unique(fishprice_raw$Location),   "Full sample")
+loo_inter_nogap <- run_loo_inter(fishprice_nogap, unique(fishprice_nogap$Location), "No max-gap ≥ 10 yrs")
+
+loo_inter <- bind_rows(loo_inter_full, loo_inter_nogap) %>%
+  mutate(
+    dataset  = factor(dataset, levels = c("Full sample", "No max-gap ≥ 10 yrs")),
+    category = factor(category, levels = c("Cod", "Herring"))
+  )
+
+ggplot(loo_inter, aes(horizon, irf_mean, colour = left_out, group = left_out)) +
+  geom_line(linewidth = 0.5, alpha = 0.7) +
+  # Baseline interacted IRF (all locations)
+  geom_line(
+    data = irf_inter %>% rename(left_out = category),
+    aes(horizon, irf_mean, group = left_out),
+    colour = "black", linewidth = 1.0, linetype = "dashed", inherit.aes = FALSE
+  ) +
+  geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.3, linetype = "dotted") +
+  facet_grid(category ~ dataset) +
+  scale_x_continuous(breaks = seq(0, HOR, 2)) +
+  scale_colour_viridis_d(option = "turbo", name = "Left out") +
+  labs(
+    x      = "Horizon (years)",
+    y      = "Effect on log fish prices",
+    title  = "LOO × species interaction",
+    subtitle = "Dashed black = baseline with all locations"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position  = "right",
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  )
+```
+
+```{r loo-compare, fig.width=8, fig.height=4}
+# ── Side-by-side: which location drives the result? ───────────────────────────
+# Summarise influence as max absolute deviation from baseline at any horizon
+baseline_full    <- irf_fixest_orig %>% dplyr::select(horizon, base = irf_mean)
+baseline_optimal <- irf_optimal     %>% dplyr::select(horizon, base = irf_mean)
+
+influence_full <- loo_full %>%
+  left_join(baseline_full, by = "horizon") %>%
+  group_by(left_out) %>%
+  summarise(max_dev = max(abs(irf_mean - base)), .groups = "drop") %>%
+  mutate(panel = "Full sample")
+
+influence_optimal <- loo_optimal %>%
+  left_join(baseline_optimal, by = "horizon") %>%
+  group_by(left_out) %>%
+  summarise(max_dev = max(abs(irf_mean - base)), .groups = "drop") %>%
+  mutate(panel = "Optimal panel")
+
+influence <- bind_rows(influence_full, influence_optimal) %>%
+  mutate(panel = factor(panel, levels = c("Full sample", "Optimal panel")))
+
+ggplot(influence, aes(reorder(left_out, max_dev), max_dev, fill = panel)) +
+  geom_col(position = position_dodge(0.7), width = 0.6) +
+  coord_flip() +
+  scale_fill_manual(values = c("Full sample" = "#333333", "Optimal panel" = "#0072B2")) +
+  labs(x = NULL, y = "Max |deviation from baseline| across horizons",
+       title = "Location influence on IRF",
+       fill = NULL) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom")
+```

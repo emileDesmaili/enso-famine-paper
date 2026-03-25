@@ -53,7 +53,7 @@ price <- read.csv("../processed data/price_2023_enso.csv") %>%
 ## Nature-style theme
 
 ```{r theme}
-nature_theme <- function(base_size = 8) {
+nature_theme <- function(base_size = 11) {
   theme_classic(base_size = base_size) +
     theme(
       axis.line         = element_line(linewidth = 0.4, colour = "black"),

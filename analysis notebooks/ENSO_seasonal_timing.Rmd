@@ -1,0 +1,292 @@
+---
+title: "ENSO Seasonal Timing – Reviewer Response"
+output: html_notebook
+editor_options:
+  chunk_output_type: inline
+---
+
+**Question (Reviewer):** Does using an annual NINO3.4 value conflate developing
+and decaying ENSO events? Do results change if harvests are linked to the
+preceding NDJF peak (decaying) vs the developing JJA phase?
+
+**Answer strategy:** Construct three shock definitions from the paper's own
+annual NINO3.4 index (already used in fig3). Since only an annual reconstruction
+is available, seasonal variants are approximated as:
+
+| Label | Definition | Interpretation |
+|---|---|---|
+| `nino34_annual` | annual mean[t] (paper's nino34) | Current baseline — identical to fig3 |
+| `nino34_NDJF`   | (annual[t-1] + annual[t]) / 2 | Preceding winter peak (NDJF straddles calendar years) |
+| `nino34_JJA`    | annual[t] | Growing-season phase (same year; = annual baseline) |
+
+Note: because only an annual series is available, JJA and Annual are identical.
+The meaningful comparison is Annual vs NDJF[t-1/t], which tests whether linking
+harvests to the *preceding* winter peak (decaying El Niño) changes results.
+
+If IRFs are similar, the annual measure is a robust integrated proxy. If NDJF
+diverges, it indicates the preceding winter peak drives the teleconnection.
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(patchwork)
+  library(fixest)
+  library(purrr)
+  library(stringr)
+})
+source("../emileRegs.R")
+setFixest_notes(FALSE)
+```
+
+## Merge with yield data
+
+```{r yield-data}
+# Load yield data (paper's nino34 already in this file)
+yield_base <- read.csv("../processed data/yield_ljungqvist_2025.csv") %>%
+  mutate(decade = floor(Year / 10) * 10) %>%
+  filter(Grain %in% c("Wheat", "Rye")) %>%
+  arrange(VarLocationGrain, Year)
+
+# Build seasonal variants from the paper's own nino34 (not Cook reconstruction)
+# so that the "Annual (current)" IRF exactly matches fig3.
+# NDJF[t-1/t]: average of preceding and current year — best approximation when
+# only an annual series is available (NDJF straddles two calendar years).
+# JJA[t]: same-year annual value (growing-season developing phase).
+nino_seasonal <- yield_base %>%
+  distinct(Year, nino34) %>%
+  arrange(Year) %>%
+  mutate(
+    nino34_annual = nino34,
+    nino34_NDJF   = (lag(nino34, 1) + nino34) / 2,
+    nino34_JJA    = nino34
+  )
+
+yield <- yield_base %>%
+  left_join(nino_seasonal %>% dplyr::select(Year, nino34_annual, nino34_NDJF, nino34_JJA),
+            by = "Year")
+
+cat("Wheat/Rye obs:", nrow(yield), "\n")
+cat("NAs in NDJF shock (from lag):", sum(is.na(yield$nino34_NDJF)), "\n")
+```
+
+## Check: seasonal variants vs paper nino34
+
+```{r cross-check}
+# Verify that nino34_annual == nino34 (should be 1.0) and inspect NDJF/JJA coverage
+check <- yield %>%
+  distinct(Year, nino34, nino34_annual, nino34_NDJF) %>%
+  drop_na()
+
+cat("Corr nino34 vs nino34_annual (should be 1):",
+    round(cor(check$nino34, check$nino34_annual), 4), "\n")
+cat("Corr nino34 vs nino34_NDJF:",
+    round(cor(check$nino34, check$nino34_NDJF), 3), "\n")
+cat("Years with valid NDJF:", sum(!is.na(yield %>% distinct(Year, nino34_NDJF) %>% pull(nino34_NDJF))), "\n")
+```
+
+## IRF under two shock definitions
+
+```{r irf-seasonal, cache=TRUE}
+# JJA == Annual when only an annual series is available, so we compare
+# the two meaningful variants: current-year annual vs preceding-winter NDJF.
+shocks <- c(
+  "Annual (current)"  = "nino34_annual",
+  "NDJF[t-1/t] peak" = "nino34_NDJF"
+)
+
+irf_seasonal <- map_dfr(names(shocks), function(label) {
+  var <- shocks[[label]]
+  lp_panel(
+    data         = yield %>% filter(!is.na(.data[[var]])),
+    outcome      = "logyield",
+    main_var     = var,
+    controls     = "i(decade)",
+    horizon      = 3,
+    fe           = "VarLocationGrain",
+    panel_id     = c("VarLocationGrain", "Year"),
+    vcov_formula = DK ~ Year
+  ) %>%
+    mutate(shock_label = label, term = var)
+})
+```
+
+```{r plot-seasonal, fig.width=5, fig.height=3}
+ggplot(irf_seasonal, aes(horizon, irf_mean,
+                          colour = shock_label, fill = shock_label,
+                          linetype = shock_label)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up),
+              alpha = 0.12, colour = NA) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.35, linetype = "dashed") +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = 0:3) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_colour_manual(values = c(
+    "Annual (current)"  = "#333333",
+    "NDJF[t-1/t] peak" = "#0072B2"
+  )) +
+  scale_fill_manual(values = c(
+    "Annual (current)"  = "#333333",
+    "NDJF[t-1/t] peak" = "#0072B2"
+  )) +
+  scale_linetype_manual(values = c(
+    "Annual (current)"  = "solid",
+    "NDJF[t-1/t] peak" = "dashed"
+  )) +
+  labs(
+    x        = "Horizon (years after shock)",
+    y        = "% Harvest response",
+    colour   = NULL, fill = NULL, linetype = NULL,
+    title    = "Harvest IRF: annual vs NDJF ENSO",
+    subtitle = "Wheat & Rye | DK SEs | VarLocationGrain + Decade FE"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    strip.background = element_blank()
+  ) +
+  guides(colour = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)))
+```
+
+## Two-panel figure: teleconnected W/R vs non-teleconnected non-W/R
+
+```{r irf-two-panels, cache=TRUE}
+# Panel a: teleconnected Wheat & Rye (yield already filtered to W/R above)
+# Panel b: non-teleconnected, non-Wheat/Rye — load full yield for other grains
+yield_all <- read.csv("../processed data/yield_ljungqvist_2025.csv") %>%
+  mutate(decade = floor(Year / 10) * 10) %>%
+  arrange(VarLocationGrain, Year) %>%
+  left_join(nino_seasonal %>% dplyr::select(Year, nino34_annual, nino34_NDJF),
+            by = "Year")
+
+run_irf <- function(df) {
+  map_dfr(names(shocks), function(slabel) {
+    var <- shocks[[slabel]]
+    lp_panel(
+      data         = df %>% filter(!is.na(.data[[var]])),
+      outcome      = "logyield",
+      main_var     = var,
+      controls     = "i(decade)",
+      horizon      = 3,
+      fe           = "VarLocationGrain",
+      panel_id     = c("VarLocationGrain", "Year"),
+      vcov_formula = DK ~ Year
+    ) %>% mutate(shock_label = factor(slabel, levels = names(shocks)))
+  })
+}
+
+irf_teleco_WR   <- run_irf(yield %>% filter(teleco_PDSI_10 == 1))
+irf_nonteleco_noWR <- run_irf(yield_all %>%
+                                 filter(!Grain %in% c("Wheat", "Rye"),
+                                        teleco_PDSI_10 == 0))
+```
+
+```{r plot-two-panels, fig.width=6.5, fig.height=2.8}
+COL_ANN  <- "#E69F00"   # warm amber — distinct, colourful
+COL_NDJF <- "#0072B2"   # blue
+
+make_panel <- function(df, title) {
+  ggplot(df, aes(horizon, irf_mean, colour = shock_label, fill = shock_label,
+                 linetype = shock_label)) +
+    geom_ribbon(
+      data = df %>% filter(shock_label == "Annual (current)"),
+      aes(ymin = irf_down, ymax = irf_up),
+      alpha = 0.15, colour = NA
+    ) +
+    geom_hline(yintercept = 0, colour = "grey65", linewidth = 0.3, linetype = "dashed") +
+    geom_line(linewidth = 0.75) +
+    geom_point(size = 1.5) +
+    scale_x_continuous(breaks = 0:3, expand = c(0.04, 0)) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1),
+                       expand = c(0.06, 0)) +
+    scale_colour_manual(
+      values = c("Annual (current)"  = COL_ANN,
+                 "NDJF[t-1/t] peak" = COL_NDJF),
+      labels = c("Annual (current)"  = "Annual",
+                 "NDJF[t-1/t] peak" = "NDJF peak")
+    ) +
+    scale_fill_manual(
+      values = c("Annual (current)"  = COL_ANN,
+                 "NDJF[t-1/t] peak" = COL_NDJF),
+      labels = c("Annual (current)"  = "Annual",
+                 "NDJF[t-1/t] peak" = "NDJF peak")
+    ) +
+    scale_linetype_manual(
+      values = c("Annual (current)"  = "solid",
+                 "NDJF[t-1/t] peak" = "dashed"),
+      labels = c("Annual (current)"  = "Annual",
+                 "NDJF[t-1/t] peak" = "NDJF peak")
+    ) +
+    labs(x = "Horizon (years)", y = "Harvest response (%)",
+         colour = NULL, fill = NULL, linetype = NULL,
+         title = title) +
+    theme_classic(base_size = 8) +
+    theme(
+      legend.position   = "bottom",
+      legend.key.width  = unit(18, "pt"),
+      legend.text       = element_text(size = 7.5),
+      legend.margin     = margin(0, 0, 0, 0),
+      legend.spacing.x  = unit(4, "pt"),
+      strip.background  = element_blank(),
+      plot.title        = element_text(size = 8, face = "plain", colour = "grey30"),
+      axis.line         = element_line(linewidth = 0.35),
+      axis.ticks        = element_line(linewidth = 0.3),
+      axis.ticks.length = unit(2.5, "pt"),
+      plot.margin       = margin(4, 8, 4, 4, "pt")
+    ) +
+    guides(colour   = guide_legend(override.aes = list(linewidth = 1.1, alpha = 1)),
+           fill     = guide_legend(override.aes = list(alpha = 0.2)),
+           linetype = guide_legend(override.aes = list(linewidth = 1.1)))
+}
+
+# Shared y limits across both panels
+combined_range <- range(c(irf_teleco_WR$irf_down,   irf_teleco_WR$irf_up,
+                           irf_nonteleco_noWR$irf_down, irf_nonteleco_noWR$irf_up),
+                        na.rm = TRUE)
+y_pad  <- diff(combined_range) * 0.06
+y_lims <- combined_range + c(-y_pad, y_pad)
+
+pa <- make_panel(irf_teleco_WR,      "Teleconnected, Wheat & Rye")    + coord_cartesian(ylim = y_lims)
+pb <- make_panel(irf_nonteleco_noWR, "Not teleconnected, other grains") + coord_cartesian(ylim = y_lims)
+
+fig_save <- pa + pb +
+  plot_layout(guides = "collect") &
+  plot_annotation(tag_levels = "a") &
+  theme(
+    legend.position  = "bottom",
+    plot.tag         = element_text(face = "bold", size = 9)
+  )
+
+fig_save
+```
+
+## Numerical comparison table
+
+```{r table}
+irf_seasonal %>%
+  dplyr::select(shock_label, horizon, irf_mean, irf_down, irf_up) %>%
+  mutate(across(c(irf_mean, irf_down, irf_up), ~ round(.x * 100, 2))) %>%
+  pivot_wider(names_from = shock_label,
+              values_from = c(irf_mean, irf_down, irf_up)) %>%
+  arrange(horizon) %>%
+  print()
+```
+
+## Save
+
+```{r save, message=FALSE}
+out_dir <- "../analysis/output/figures/extended data"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+ggsave(
+  file.path(out_dir, "figED_seasonal_ENSO_timing.pdf"),
+  plot = fig_save, width = 6.5, height = 3.0,
+  units = "in", device = cairo_pdf
+)
+message("Saved → figED_seasonal_ENSO_timing.pdf")
+```
+
