@@ -16,6 +16,10 @@
 #   figA_irf_subsample_20y_fishprice.csv
 #   figA_irf_price_bootstrap_null.csv / _true.csv
 #   figA_irf_fishprice_bootstrap_null.csv / _true.csv
+#   figA_irf_allen.csv
+#
+# Appendix PDFs:
+#   figA_irf_allen.pdf  – Allen wheat price IRF under 4 control specs
 ###############################################################################
 
 suppressPackageStartupMessages({
@@ -30,6 +34,8 @@ suppressPackageStartupMessages({
   library(future)
   library(fixest)
 })
+
+setFixest_notes(FALSE)
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 .script_dir <- function() {
@@ -90,6 +96,12 @@ load_fishprice <- function() {
     dplyr::select(LocationSpecies, Year, Decade, everything())
 }
 
+load_fishcatch <- function() {
+  read.csv(file.path(DATA_PROC, "fishcatch_enso.csv")) |>
+    mutate(Decade = floor(Year / 10) * 10) |>
+    dplyr::select(TypeLocation, Year, Decade, everything())
+}
+
 
 ###############################################################################
 # Fig 5A – Grain price IRF
@@ -108,10 +120,11 @@ export_fig5A <- function(data) {
   bind_rows(lapply(names(teleco_conditions), function(label) {
     spec   <- teleco_conditions[[label]]
     df_sub <- if (!is.null(spec$filter)) filter(data, !!spec$filter) else data
+    n_loc  <- dplyr::n_distinct(df_sub$Location)
     run_lp_price(df_sub, "logprice",
                  controls = .build_ctrl(spec$ctrl),
                  hor      = 10) |>
-      transmute(label = label, horizon, irf_mean, irf_up, irf_down)
+      transmute(label = label, n_loc = n_loc, horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "fig5A_irf_grain_price.csv"), row.names = FALSE)
   message("Exported fig5A_irf_grain_price.csv")
@@ -157,7 +170,7 @@ run_lp_se_robust_price <- function(df, endog, entity,
 
     v_conley <- tryCatch(
       vcov(mod, vcov = vcov_conley(lat = lat_col, lon = lon_col,
-                                   cutoff = 5, distance = "spherical")),
+                                   cutoff = 500, distance = "spherical")),
       error = function(e) NULL
     )
     v_nw   <- vcov(mod, vcov = NW ~ Year)
@@ -194,6 +207,113 @@ export_se_robust_fish <- function(fishprice) {
   run_lp_se_robust_price(fishprice, "logprice", "LocationSpecies", hor = 10) |>
     write.csv(file.path(out_data, "figA_irf_fishprice_serobust.csv"), row.names = FALSE)
   message("Exported figA_irf_fishprice_serobust.csv")
+}
+
+
+###############################################################################
+# Appendix: Allen wheat price IRF
+###############################################################################
+export_allen_irf <- function() {
+  allen_path <- file.path(ROOT, "processed data", "wheatprices_dataset.dta")
+  if (!file.exists(allen_path)) {
+    message("wheatprices_dataset.dta not found – skipping Allen IRF")
+    return(invisible(NULL))
+  }
+
+  # Year-level ENSO + controls from famine_region_data (averaged across regions)
+  region_data <- read.csv(file.path(DATA_PROC, "famine_region_data.csv")) |>
+    dplyr::group_by(Year) |>
+    dplyr::summarise(
+      nino34          = mean(nino34,          na.rm = TRUE),
+      PDSI_europe     = mean(PDSI_europe,     na.rm = TRUE),
+      ongoing_wars    = mean(ongoing_wars,    na.rm = TRUE),
+      Deaths          = mean(Deaths,          na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  data_allen <- haven::read_dta(allen_path) |>
+    dplyr::rename(Year = year) |>
+    dplyr::left_join(region_data, by = "Year") |>
+    mutate(decade = floor(Year / 10) * 10) |>
+    drop_na(citynum, Year, logwheatprice, nino34) |>
+    distinct()
+
+  ctrl_dict <- list(
+    "Base"               = "decade",
+    "Climate"            = c("decade", "PDSI_europe", "growseasontemp",
+                             "meantemp", "growseasonrain"),
+    "Conflict"           = c("decade", "ongoing_wars", "Deaths"),
+    "Climate + Conflict" = c("decade", "PDSI_europe", "growseasontemp",
+                             "meantemp", "growseasonrain", "ongoing_wars", "Deaths")
+  )
+
+  results <- bind_rows(lapply(names(ctrl_dict), function(nm) {
+    avail <- names(data_allen)
+    ctrl_vec <- ctrl_dict[[nm]]
+    ctrl_vec <- ctrl_vec[ctrl_vec %in% c("decade", avail)]
+    ctrl_str <- paste(
+      ifelse(ctrl_vec == "decade", "i(decade)", ctrl_vec),
+      collapse = " + "
+    )
+    tryCatch(
+      lp_panel(
+        data         = data_allen,
+        outcome      = "logwheatprice",
+        main_var     = "nino34",
+        controls     = ctrl_str,
+        horizon      = 10,
+        fe           = "citynum",
+        panel_id     = c("citynum", "Year"),
+        vcov_formula = DK ~ Year
+      ) |> transmute(controls = nm, horizon, irf_mean, irf_up, irf_down),
+      error = function(e) {
+        message("Allen IRF failed for controls '", nm, "': ", e$message)
+        NULL
+      }
+    )
+  }))
+
+  if (is.null(results) || nrow(results) == 0) {
+    message("Allen IRF: no results to export")
+    return(invisible(NULL))
+  }
+
+  write.csv(results, file.path(out_data, "figA_irf_allen.csv"), row.names = FALSE)
+  message("Exported figA_irf_allen.csv")
+}
+
+plot_allen_irf <- function() {
+  path <- file.path(out_data, "figA_irf_allen.csv")
+  if (!file.exists(path)) { message("figA_irf_allen.csv not found"); return() }
+  df <- read.csv(path)
+
+  p <- ggplot(df, aes(x = horizon, y = irf_mean,
+                      color = controls, fill = controls, linetype = controls)) +
+    geom_ribbon(
+      data = dplyr::filter(df, controls == "Base"),
+      aes(ymin = irf_down, ymax = irf_up),
+      alpha = 0.15, color = NA
+    ) +
+    geom_line(linewidth = 1.2) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
+    scale_x_continuous(breaks = 0:10) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_color_manual(values = .CTRL_COLORS) +
+    scale_fill_manual(values = .CTRL_COLORS) +
+    scale_linetype_manual(values = .CTRL_LTY) +
+    labs(x = "Horizon (years)",
+         y = "% Wheat price response\n(Allen dataset)",
+         color = "Controls", fill = "Controls", linetype = "Controls") +
+    theme_classic(base_size = 18) +
+    theme(legend.position = "bottom",
+          panel.grid = element_blank()) +
+    guides(color    = guide_legend(nrow = 2, byrow = TRUE),
+           fill     = guide_legend(nrow = 2, byrow = TRUE),
+           linetype = guide_legend(nrow = 2, byrow = TRUE))
+
+  ggsave(file.path(fig_out, "figA_irf_allen.pdf"), p,
+         width = 6, height = 5, device = cairo_pdf)
+  message("Saved figA_irf_allen.pdf")
 }
 
 
@@ -328,6 +448,50 @@ export_20y_fish <- function(fishprice) {
 
 
 ###############################################################################
+# Appendix: fish catch IRF – NAO and NINO3.4 shocks
+###############################################################################
+export_fishcatch_irf <- function(fishcatch) {
+  shocks <- c("nino34" = "NINO3.4", "NAO_cal" = "NAO")
+  bind_rows(lapply(names(shocks), function(shock) {
+    run_lp_price(fishcatch, "logcatch",
+                 shock    = shock,
+                 controls = "i(Decade)",
+                 entity   = "TypeLocation",
+                 hor      = 10) |>
+      transmute(shock = shocks[[shock]], horizon, irf_mean, irf_up, irf_down)
+  })) |>
+    write.csv(file.path(out_data, "figA_irf_catches.csv"), row.names = FALSE)
+  message("Exported figA_irf_catches.csv")
+}
+
+plot_fishcatch_irf <- function() {
+  path <- file.path(out_data, "figA_irf_catches.csv")
+  if (!file.exists(path)) { message("figA_irf_catches.csv not found"); return() }
+  df <- read.csv(path)
+  shock_colors <- c("NINO3.4" = "#1b9e77", "NAO" = "#d95f02")
+  shock_lty    <- c("NINO3.4" = "dashed",  "NAO" = "solid")
+  p <- ggplot(df, aes(x = horizon, color = shock, fill = shock, linetype = shock)) +
+    geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.2, color = NA) +
+    geom_line(aes(y = irf_mean), linewidth = 1.2) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
+    scale_x_continuous(breaks = 0:10) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_color_manual(values = shock_colors) +
+    scale_fill_manual(values = shock_colors) +
+    scale_linetype_manual(values = shock_lty) +
+    labs(x = "Horizon (Years)",
+         y = "% Fish catch response",
+         color = "Shock", fill = "Shock", linetype = "Shock") +
+    theme_classic(base_size = 18) +
+    theme(legend.position = "top",
+          panel.grid = element_blank())
+  ggsave(file.path(fig_out, "figA_irf_catches.pdf"), p,
+         width = 6, height = 5, device = cairo_pdf)
+  message("Saved figA_irf_catches.pdf")
+}
+
+
+###############################################################################
 # Appendix: bootstrap permutation
 ###############################################################################
 export_bootstrap <- function(data, fishprice, n_iter = 500) {
@@ -365,6 +529,20 @@ export_bootstrap <- function(data, fishprice, n_iter = 500) {
 fig_out <- file.path(SCRIPT_DIR, "output", "figures", "appendix")
 dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
 
+# Shared palette for 4-control IRF plots (Allen & FSV)
+.CTRL_COLORS <- c(
+  "Base"               = "black",
+  "Climate"            = "firebrick",
+  "Conflict"           = "steelblue",
+  "Climate + Conflict" = "orange"
+)
+.CTRL_LTY <- c(
+  "Base"               = "solid",
+  "Climate"            = "solid",
+  "Conflict"           = "dashed",
+  "Climate + Conflict" = "dashed"
+)
+
 .loo_overlay_plot <- function(base_df, loo_df, group_col, y_label) {
   ggplot() +
     geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
@@ -379,7 +557,7 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)", y = y_label) +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank())
 }
 
@@ -395,10 +573,10 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)", y = y_label,
          color = "ENSO index", fill = "ENSO index") +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank(), legend.position = "bottom")
   ggsave(file.path(fig_out, out_file), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved ", out_file)
 }
 
@@ -424,16 +602,16 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)", y = y_label,
          caption = "Blue band: 95% permutation null interval. Black line: true IRF.") +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(panel.grid = element_blank())
   ggsave(file.path(fig_out, out_file), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved ", out_file)
 }
 
 plot_ninocheck_price <- function() {
-  y_price <- "% Grain price response to 1\u00b0C NINO3.4 shock"
-  y_fish  <- "% Fish price response to 1\u00b0C NINO3.4 shock"
+  y_price <- "% Grain price response"
+  y_fish  <- "% Fish price response"
   .ninocheck_plot("figA_irf_price_ninocheck.csv",     y_price, "figA_irf_ninocheck_price.pdf")
   .ninocheck_plot("figA_irf_fishprice_ninocheck.csv", y_fish,  "figA_irf_ninocheck_fishprice.pdf")
 }
@@ -442,25 +620,37 @@ plot_FSV_irf <- function() {
   path <- file.path(out_data, "figA_irf_FSV.csv")
   if (!file.exists(path)) { message("figA_irf_FSV.csv not found"); return() }
   df <- read.csv(path)
-  p <- ggplot(df, aes(x = horizon, y = irf_mean, color = controls, fill = controls)) +
+  p <- ggplot(df, aes(x = horizon, y = irf_mean,
+                      color = controls, fill = controls, linetype = controls)) +
+    geom_ribbon(
+      data = dplyr::filter(df, controls == "Base"),
+      aes(ymin = irf_down, ymax = irf_up),
+      alpha = 0.15, color = NA
+    ) +
+    geom_line(linewidth = 1.2) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.18, color = NA) +
-    geom_line(linewidth = 1.1) +
-    scale_x_continuous(breaks = scales::pretty_breaks()) +
+    scale_x_continuous(breaks = 0:10) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_color_manual(values = .CTRL_COLORS) +
+    scale_fill_manual(values = .CTRL_COLORS) +
+    scale_linetype_manual(values = .CTRL_LTY) +
     labs(x = "Horizon (years)",
-         y = "Log wheat price response to 1\u00b0C NINO3.4 shock",
-         color = "Controls", fill = "Controls") +
-    theme_classic(base_size = 13) +
-    theme(panel.grid = element_blank(), legend.position = "bottom")
+         y = "% Wheat price response\n(Federico-Schulze-Ville\u00e8ne dataset)",
+         color = "Controls", fill = "Controls", linetype = "Controls") +
+    theme_classic(base_size = 18) +
+    theme(legend.position = "bottom",
+          panel.grid = element_blank()) +
+    guides(color    = guide_legend(nrow = 2, byrow = TRUE),
+           fill     = guide_legend(nrow = 2, byrow = TRUE),
+           linetype = guide_legend(nrow = 2, byrow = TRUE))
   ggsave(file.path(fig_out, "figA_irf_FSV.pdf"), p,
-         width = 7, height = 5, device = cairo_pdf)
+         width = 6, height = 5, device = cairo_pdf)
   message("Saved figA_irf_FSV.pdf")
 }
 
 plot_bootstrap_price <- function() {
-  y_price <- "Log grain price response to 1\u00b0C NINO3.4 shock"
-  y_fish  <- "Log fish price response to 1\u00b0C NINO3.4 shock"
+  y_price <- "Log grain price response"
+  y_fish  <- "Log fish price response"
   .bootstrap_plot("figA_irf_price_bootstrap_null.csv",
                   "figA_irf_price_bootstrap_true.csv",
                   y_price, "figA_irf_bootstrap_price.pdf")
@@ -470,8 +660,8 @@ plot_bootstrap_price <- function() {
 }
 
 plot_loo_price <- function() {
-  y_price <- "% Grain price response to 1\u00b0C NINO3.4 shock"
-  y_fish  <- "% Fish price response to 1\u00b0C NINO3.4 shock"
+  y_price <- "% Grain price response"
+  y_fish  <- "% Fish price response"
 
   .make_loo <- function(base_csv, base_grp, loo_csv, grp_col, y_label, out_file) {
     for (f in c(file.path(out_data, base_csv), file.path(out_data, loo_csv))) {
@@ -483,7 +673,7 @@ plot_loo_price <- function() {
     loo_df  <- read.csv(file.path(out_data, loo_csv))
     ggsave(file.path(fig_out, out_file),
            .loo_overlay_plot(base_df, loo_df, grp_col, y_label),
-           width = 9, height = 6, device = cairo_pdf)
+           width = 6, height = 5, device = cairo_pdf)
     message("Saved ", out_file)
   }
 
@@ -510,28 +700,28 @@ plot_loo_price <- function() {
     geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
     geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "cornflowerblue", alpha = 0.25) +
     geom_line(color = "black", linewidth = 1.1) +
-    facet_wrap(~ se_type, ncol = 2) +
+    facet_wrap(~ se_type, ncol = 4) +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     labs(x = "Horizon (years)", y = y_label) +
-    theme_classic(base_size = 13) +
+    theme_classic(base_size = 18) +
     theme(strip.background = element_blank(),
           strip.text       = element_text(face = "bold"),
           panel.grid       = element_blank())
   ggsave(file.path(fig_out, out_file), p,
-         width = 9, height = 7, device = cairo_pdf)
+         width = 10, height = 4, device = cairo_pdf)
   message("Saved ", out_file)
 }
 
 plot_se_robust_price <- function() {
   .se_robust_plot("figA_irf_price_serobust.csv",
-                  "Log grain price response to 1\u00b0C NINO3.4 shock",
+                  "Log grain price response",
                   "figA_irf_serobust_price.pdf")
 }
 
 plot_se_robust_fish <- function() {
   .se_robust_plot("figA_irf_fishprice_serobust.csv",
-                  "Log fish price response to 1\u00b0C NINO3.4 shock",
+                  "Log fish price response",
                   "figA_irf_serobust_fishprice.pdf")
 }
 
@@ -542,11 +732,13 @@ plot_se_robust_fish <- function() {
 if (!interactive()) {
   data      <- load_prices()
   fishprice <- load_fishprice()
+  fishcatch <- load_fishcatch()
 
   export_fig5A(data)
   export_fig5B(fishprice)
   export_se_robust_price(data)
   export_se_robust_fish(fishprice)
+  export_allen_irf()
   export_FSV_irf()
   export_nino_check_price(data)
   export_nino_check_fish(fishprice)
@@ -554,13 +746,16 @@ if (!interactive()) {
   export_20y_prices(data)
   export_loo_fish(fishprice)
   export_20y_fish(fishprice)
+  export_fishcatch_irf(fishcatch)
   export_bootstrap(data, fishprice, n_iter = 10)
   plot_ninocheck_price()
+  plot_allen_irf()
   plot_FSV_irf()
   plot_bootstrap_price()
   plot_loo_price()
   plot_se_robust_price()
   plot_se_robust_fish()
+  plot_fishcatch_irf()
 
   message("Fig 5 data exports complete.")
 } else {

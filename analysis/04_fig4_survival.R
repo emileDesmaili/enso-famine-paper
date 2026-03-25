@@ -37,6 +37,8 @@ suppressPackageStartupMessages({
   library(sandwich)
 })
 
+setFixest_notes(FALSE)
+
 # ── paths ─────────────────────────────────────────────────────────────────────
 .script_dir <- function() {
   args     <- commandArgs(trailingOnly = FALSE)
@@ -100,6 +102,10 @@ fit_cox_models <- function(famine_long) {
     "Controls + Strata"         = coxph(
       Surv(start, stop, event) ~ nino34 + ongoing_wars + temp_winter +
         precip_winter + PDSI + temp_summer + log(1 + Deaths) + strata(Region),
+      data = famine_long
+    ),
+    "Interaction"               = coxph(
+      Surv(start, stop, event) ~ nino34:strata(Region) + Region,
       data = famine_long
     )
   )
@@ -185,6 +191,59 @@ export_surv_strata <- function(models, famine_summary) {
                             nino34 == 1  ~ "El Niño")) |>
     write.csv(file.path(out_data, "figA_surv_strata.csv"), row.names = FALSE)
   message("Exported figA_surv_strata.csv")
+}
+
+
+###############################################################################
+# Appendix: interaction survival – region-specific ENSO effects
+###############################################################################
+export_surv_inter <- function(models, famine_summary) {
+  cox_inter <- models[["Interaction"]]
+  new_data  <- expand.grid(
+    nino34 = c(-1, 0, 1),
+    Region = unique(famine_summary$Region)
+  )
+  sf      <- summary(survfit(cox_inter, newdata = new_data))
+  lengths <- as.numeric(table(sf$strata))
+  repeated <- new_data[rep(seq_len(nrow(new_data)), times = lengths), ]
+
+  data.frame(time = sf$time, surv = sf$surv,
+             lower = sf$lower, upper = sf$upper) |>
+    bind_cols(repeated) |>
+    mutate(ENSO = case_when(nino34 == -1 ~ "La Niña",
+                            nino34 == 0  ~ "Neutral",
+                            nino34 == 1  ~ "El Niño")) |>
+    write.csv(file.path(out_data, "figA_surv_inter.csv"), row.names = FALSE)
+  message("Exported figA_surv_inter.csv")
+}
+
+plot_surv_inter <- function() {
+  path <- file.path(out_data, "figA_surv_inter.csv")
+  if (!file.exists(path)) { message("figA_surv_inter.csv not found"); return() }
+  df <- read.csv(path) |>
+    mutate(ENSO = factor(ENSO, levels = c("La Niña", "Neutral", "El Niño")))
+  enso_colors <- c("La Niña" = "cornflowerblue", "Neutral" = "black", "El Niño" = "coral")
+  enso_shapes <- c("La Niña" = 16, "Neutral" = 17, "El Niño" = 18)
+  p <- ggplot(df, aes(x = time, y = surv, color = ENSO, shape = ENSO)) +
+    geom_line(linewidth = 1.0) +
+    geom_point(size = 2) +
+    facet_wrap(~ Region, scales = "free", ncol = 3) +
+    scale_color_manual(values = enso_colors) +
+    scale_shape_manual(values = enso_shapes) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    scale_x_continuous(breaks = 1:12) +
+    labs(x = "Famine duration (years)",
+         y = "Survival probability",
+         color = "ENSO anomaly", shape = "ENSO anomaly",
+         title = "Survival by Region × ENSO (interaction model)") +
+    theme_classic(base_size = 13) +
+    theme(strip.background = element_blank(),
+          strip.text       = element_text(face = "bold"),
+          panel.grid       = element_blank(),
+          legend.position  = "top")
+  ggsave(file.path(fig_out, "figA_surv_inter.pdf"), p,
+         width = 12, height = 8, device = cairo_pdf)
+  message("Saved figA_surv_inter.pdf")
 }
 
 
@@ -426,10 +485,12 @@ if (!interactive()) {
   export_fig4A(models)
   export_fig4B(models, famine_summary)
   export_surv_strata(models, famine_summary)
+  export_surv_inter(models, famine_summary)
   export_permutation_survival(famine_long, n_iter=100)
   export_loo_duration(famine_long)
   save_survival_tables(famine_long, famine_summary)
   plot_surv_strata()
+  plot_surv_inter()
   plot_permutation_survival()
   plot_loo_duration()
 

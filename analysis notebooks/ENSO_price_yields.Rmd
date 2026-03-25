@@ -70,6 +70,8 @@ suppressPackageStartupMessages(suppressWarnings(library(ggpubr)))
 suppressPackageStartupMessages(suppressWarnings(library(modelsummary)))
 library(furrr)
 library(purrr)
+source("../emileRegs.R")
+library(useful)
 ```
 
 
@@ -81,7 +83,7 @@ library(purrr)
 
 
 ```{r}
-data <- read.csv('../data/price_2023_enso.csv')
+data <- read.csv('../processed data/price_2023_enso.csv')
 #put Location and Year as first columns
 data <- data %>% 
     mutate(Decade = floor(Year / 10) * 10) %>% 
@@ -108,7 +110,7 @@ data_lag <- data %>%
   drop_na()
 
 
-data_region <- read.csv('../data/famine_region_data.csv')
+data_region <- read.csv('../processed data/famine_region_data.csv')
 
 ```
 
@@ -134,6 +136,10 @@ datasummary(
   title = "Summary Statistics for grain price data"
 )
 ```
+
+
+
+
 
 ## FE-DL
 
@@ -2704,7 +2710,7 @@ ggsave("../figures/plots/IRF_ENSO_yieldWR_bootstrap_shuffle.pdf", device = cairo
 
 
 ```{r}
-fishprice <- read.csv('../data/fishprice_enso.csv') %>% 
+fishprice <- read.csv('../processed data/fishprice_enso.csv') %>% 
   mutate(Decade = floor(Year / 10) * 10) %>%
   dplyr::select(LocationSpecies,Year, Decade, everything()) 
 ```
@@ -3373,6 +3379,7 @@ ggplot() +
 
 ggsave("../figures/plots/IRF_ENSO_fishprice_bootstrap_shuffle.pdf", device = cairo_pdf, dpi = 300)
 ```
+
 
 
 

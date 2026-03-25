@@ -8,7 +8,7 @@ Produces 2×2 panel maps (nino3, nino34, nino4, nino12) for each variable:
   • Summer Precip (ModE-RA, AMJJ)
   • Winter Precip (ModE-RA, NDJF)
 
-Outputs saved to paper/figures/plots/  (matching main.tex \\includegraphics paths):
+Outputs saved to analysis/output/figures/appendix/:
   PDSI_telecomap.pdf
   SummerTemp_telecomap.pdf
   WinterTemp_telecomap.pdf
@@ -36,7 +36,7 @@ from scipy.stats import pearsonr
 SCRIPT_DIR = Path(__file__).parent
 ROOT       = SCRIPT_DIR.parent
 DATA_RAW   = ROOT / "data"
-OUT_DIR    = ROOT / "paper" / "figures" / "plots"
+OUT_DIR    = SCRIPT_DIR / "output" / "figures" / "appendix"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 YEAR_RANGE = slice(1500, 1800)
@@ -182,10 +182,12 @@ def _load_temp(nino_xr: xr.Dataset):
                 if t.month in [11, 12] else t for t in t_arr]
 
     eu_sh = eu.assign_coords(time=("time", shift_dec(eu.time.values)))
-    eu_w  = (eu_sh.sel(time=eu_sh.time.dt.month.isin([11, 12, 1, 2]))
-             .groupby("Year").mean(dim="time"))
-    eu_s  = (eu_sh.sel(time=eu_sh.time.dt.month.isin([5, 6, 7, 8]))
-             .groupby("Year").mean(dim="time"))
+    eu_w_sel = eu_sh.sel(time=eu_sh.time.dt.month.isin([11, 12, 1, 2]))
+    eu_w = eu_w_sel.groupby(eu_w_sel.time.dt.year).mean(dim="time")
+    eu_w = eu_w.rename({[d for d in eu_w.dims if d not in ("latitude", "longitude")][0]: "Year"})
+    eu_s_sel = eu_sh.sel(time=eu_sh.time.dt.month.isin([5, 6, 7, 8]))
+    eu_s = eu_s_sel.groupby(eu_s_sel.time.dt.year).mean(dim="time")
+    eu_s = eu_s.rename({[d for d in eu_s.dims if d not in ("latitude", "longitude")][0]: "Year"})
     return xr.merge([eu_w, nino_xr]), xr.merge([eu_s, nino_xr])
 
 
@@ -204,10 +206,12 @@ def _load_precip(nino_xr: xr.Dataset):
                 if t.month in [11, 12] else t for t in t_arr]
 
     eu_sh = eu.assign_coords(time=("time", shift_dec(eu.time.values)))
-    eu_w  = (eu_sh.sel(time=eu_sh.time.dt.month.isin([11, 12, 1, 2]))
-             .groupby("Year").mean(dim="time"))
-    eu_s  = (eu_sh.sel(time=eu_sh.time.dt.month.isin([4, 5, 6, 7]))
-             .groupby("Year").mean(dim="time"))
+    eu_w_sel = eu_sh.sel(time=eu_sh.time.dt.month.isin([11, 12, 1, 2]))
+    eu_w = eu_w_sel.groupby(eu_w_sel.time.dt.year).mean(dim="time")
+    eu_w = eu_w.rename({[d for d in eu_w.dims if d not in ("latitude", "longitude")][0]: "Year"})
+    eu_s_sel = eu_sh.sel(time=eu_sh.time.dt.month.isin([4, 5, 6, 7]))
+    eu_s = eu_s_sel.groupby(eu_s_sel.time.dt.year).mean(dim="time")
+    eu_s = eu_s.rename({[d for d in eu_s.dims if d not in ("latitude", "longitude")][0]: "Year"})
     return xr.merge([eu_w, nino_xr]), xr.merge([eu_s, nino_xr])
 
 

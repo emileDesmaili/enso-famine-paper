@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.image as mpimg
@@ -177,6 +178,7 @@ def run_onset_classifier():
             "Counterfactual":        pred_cf,
             "NINO34_actual":         onset["nino34"].values,
             "NINO34_counterfactual": X_cf["nino34"].values if "nino34" in feat_set else 0,
+            "Famine_dur":            onset["Famine_dur"].values if "Famine_dur" in onset.columns else 1,
         })
         df_chron["Predicted"]      = ((df_chron["Observed"] == 1) &
                                       (df_chron["Predicted"] == 1)).astype(int)
@@ -198,6 +200,7 @@ def run_onset_classifier():
         _save_chronology_pdf(df_chron, onset, suffix)
         _save_importances_pdf(df_imp, suffix)
         _save_skill_pdf(in_sample_acc, cv_scores, suffix)
+        _save_counts_pdf(df_chron, suffix)
 
         if suffix == "All_features":
             main_result = dict(
@@ -217,6 +220,11 @@ def _save_chronology_pdf(df_chron, onset_df, suffix):
     colors     = {"Observed": "firebrick", "Predicted": "darksalmon",
                   "Counterfactual": "cornflowerblue"}
 
+    # Use actual famine duration for bar widths (matches assemble_figures logic)
+    dur_lookup = (onset_df[onset_df["Famine_start"] == 1]
+                  .set_index("Year")["Famine_dur"].to_dict()
+                  if "Famine_dur" in onset_df.columns else {})
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
                                    height_ratios=[1, 1], sharex=False)
     y_positions = {}
@@ -228,7 +236,8 @@ def _save_chronology_pdf(df_chron, onset_df, suffix):
         rd = df_chron[df_chron["Region"] == region].sort_values("Year")
         for scenario in ["Observed", "Predicted", "Counterfactual"]:
             for yr in rd.loc[rd[scenario] == 1, "Year"].values:
-                ax1.barh(y=y_positions[region][scenario], width=1, left=yr,
+                dur = dur_lookup.get(yr, 1)
+                ax1.barh(y=y_positions[region][scenario], width=dur, left=yr,
                          height=1.2, color=colors[scenario],
                          edgecolor="black", linewidth=1.2, alpha=0.7)
 
@@ -265,7 +274,7 @@ def _save_chronology_pdf(df_chron, onset_df, suffix):
     _polish(ax2)
 
     fig.tight_layout()
-    fig.savefig(OUT_MAIN / f"fig2C_MLOnset_{suffix}_chronology.pdf",
+    fig.savefig(OUT_APP / f"MLOnset_{suffix}_chronology.pdf",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved chronology for {suffix}")
@@ -275,13 +284,13 @@ def _save_importances_pdf(df_imp, suffix):
     med_order = (df_imp.groupby("Feature")["Importance"]
                  .median().sort_values(ascending=False).index)
     fig, ax = plt.subplots(figsize=(6, 4))
-    sns.boxplot(x="Importance", y="Feature", data=df_imp,
-                order=med_order, palette="Reds_r", ax=ax)
+    sns.boxplot(x="Importance", y="Feature", hue="Feature", data=df_imp,
+                order=med_order, palette="Reds_r", legend=False, ax=ax)
     ax.set_xlabel("Permutation Importance")
     ax.set_ylabel("")
     _polish(ax)
     fig.tight_layout()
-    fig.savefig(OUT_MAIN / f"fig2D_MLOnset_{suffix}_importances.pdf",
+    fig.savefig(OUT_APP / f"MLOnset_{suffix}_importances.pdf",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved importances for {suffix}")
@@ -294,19 +303,45 @@ def _save_skill_pdf(in_sample_acc, cv_scores, suffix):
         "CI":       [0, cv_scores.std()],
     })
     fig, ax = plt.subplots(figsize=(5, 2.5))
-    sns.barplot(data=skill_df, y="Skill", x="Accuracy",
+    sns.barplot(data=skill_df, y="Skill", x="Accuracy", hue="Skill",
                 palette={"In-sample": "firebrick", "Cross-Validation": "darksalmon"},
-                ax=ax)
+                legend=False, ax=ax)
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
                 color="black", fmt="none", capsize=4, elinewidth=1.5)
     ax.set_xlim(0, 1)
     ax.set_xlabel("Accuracy")
     _polish(ax)
     fig.tight_layout()
-    fig.savefig(OUT_MAIN / f"fig2E_MLOnset_{suffix}_skillHor.pdf",
+    fig.savefig(OUT_APP / f"MLOnset_{suffix}_skillHor.pdf",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved skill for {suffix}")
+
+
+def _save_counts_pdf(df_chron, suffix):
+    """Bar plot of total Observed / Predicted / Counterfactual famine counts."""
+    counts = (df_chron[["Observed", "Predicted", "Counterfactual"]]
+              .sum()
+              .reindex(["Observed", "Predicted", "Counterfactual"]))
+    palette = {"Observed": "firebrick", "Predicted": "darksalmon",
+               "Counterfactual": "cornflowerblue"}
+    fig, ax = plt.subplots(figsize=(4, 5))
+    bars = ax.bar(counts.index, counts.values,
+                  color=[palette[k] for k in counts.index], edgecolor=None)
+    for bar, v in zip(bars, counts.values):
+        ax.text(bar.get_x() + bar.get_width() / 2, v + 0.05,
+                str(int(v)), ha="center", va="bottom",
+                fontsize=FONT_SIZE, fontweight="bold")
+    ax.set_ylabel("Number of famines")
+    ax.set_xlabel("")
+    ax.set_yticks([])
+    ax.set_ylim(0, max(counts.values) * 1.25)
+    _polish(ax)
+    fig.tight_layout()
+    fig.savefig(OUT_APP / f"MLOnset_{suffix}_counts.pdf",
+                dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  saved counts for {suffix}")
 
 
 # ── Draw individual subpanels into an Axes (for combined figure) ───────────────
@@ -316,6 +351,9 @@ def _draw_C_chronology(ax_chron, ax_nino, df_chron):
     year_min, year_max = min(years), max(years)
     colors     = {"Observed": "firebrick", "Predicted": "darksalmon",
                   "Counterfactual": "cornflowerblue"}
+    dur_lookup = (df_chron[df_chron["Observed"] == 1]
+                  .set_index("Year")["Famine_dur"].to_dict()
+                  if "Famine_dur" in df_chron.columns else {})
 
     y_positions = {}
     for i, region in enumerate(sorted(df_chron["Region"].unique())):
@@ -326,7 +364,8 @@ def _draw_C_chronology(ax_chron, ax_nino, df_chron):
         rd = df_chron[df_chron["Region"] == region].sort_values("Year")
         for scenario in ["Observed", "Predicted", "Counterfactual"]:
             for yr in rd.loc[rd[scenario] == 1, "Year"].values:
-                ax_chron.barh(y=y_positions[region][scenario], width=1, left=yr,
+                dur = dur_lookup.get(yr, 1)
+                ax_chron.barh(y=y_positions[region][scenario], width=dur, left=yr,
                               height=1.2, color=colors[scenario],
                               edgecolor="black", linewidth=1.0, alpha=0.75)
 
@@ -366,8 +405,8 @@ def _draw_C_chronology(ax_chron, ax_nino, df_chron):
 def _draw_D_importances(ax, df_imp):
     med_order = (df_imp.groupby("Feature")["Importance"]
                  .median().sort_values(ascending=False).index)
-    sns.boxplot(x="Importance", y="Feature", data=df_imp,
-                order=med_order, palette="Reds_r", ax=ax)
+    sns.boxplot(x="Importance", y="Feature", hue="Feature", data=df_imp,
+                order=med_order, palette="Reds_r", legend=False, ax=ax)
     ax.set_xlabel("Permutation Importance")
     ax.set_ylabel("")
     _polish(ax)
@@ -378,9 +417,9 @@ def _draw_E_skill(ax, in_sample_acc, cv_scores):
         "Skill":    ["In-sample", "Cross-Validation"],
         "Accuracy": [in_sample_acc, cv_scores.mean()],
     })
-    sns.barplot(data=skill_df, y="Skill", x="Accuracy",
+    sns.barplot(data=skill_df, y="Skill", x="Accuracy", hue="Skill",
                 palette={"In-sample": "firebrick", "Cross-Validation": "darksalmon"},
-                ax=ax)
+                legend=False, ax=ax)
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
                 color="black", fmt="none", capsize=4, elinewidth=1.5)
     ax.set_xlim(0, 1)
@@ -391,8 +430,8 @@ def _draw_E_skill(ax, in_sample_acc, cv_scores):
 # ── Assemble Figure 2  (A+B from R PNGs, C+D+E from Python) ──────────────────
 
 def assemble_fig2(main_result):
-    png_a = OUT_MAIN / "_fig2A_panel.png"
-    png_b = OUT_MAIN / "_fig2B_panel.png"
+    png_a = OUT_APP / "_fig2A_panel.png"
+    png_b = OUT_APP / "_fig2B_panel.png"
     have_r_panels = png_a.exists() and png_b.exists()
 
     df_chron      = main_result["df_chron"]
@@ -464,7 +503,7 @@ def assemble_fig2(main_result):
     ax_e.text(-0.12, 1.05, "E", transform=ax_e.transAxes,
               fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
 
-    fig.savefig(OUT_MAIN / "fig2_combined.pdf", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT_APP / "MLOnset_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print("Saved fig2_combined.pdf")
 
@@ -555,19 +594,56 @@ def run_survival_ml():
 
     cols_rename = {f: FEAT_LABELS.get(f, f) for f in features}
     perm_data   = {
-        "RSF":      pd.DataFrame(perm_rsf.importances.T,
-                                 columns=list(cols_rename.values())),
-        "GBSA":     pd.DataFrame(perm_gbsa.importances.T,
-                                 columns=list(cols_rename.values())),
-        "CoxPH":    pd.DataFrame(perm_coxph.importances.T,
-                                 columns=list(cols_rename.values())),
-        "LassoCox": pd.DataFrame(perm_lasso.importances.T,
-                                 columns=list(cols_rename.values())),
+        "RSF":    pd.DataFrame(perm_rsf.importances.T,
+                               columns=list(cols_rename.values())),
+        "CoxGB":  pd.DataFrame(perm_gbsa.importances.T,
+                               columns=list(cols_rename.values())),
+        "CoxPH":  pd.DataFrame(perm_coxph.importances.T,
+                               columns=list(cols_rename.values())),
+        "CoxNet": pd.DataFrame(perm_lasso.importances.T,
+                               columns=list(cols_rename.values())),
     }
 
+    # ── Nested-CV concordance bar plot (appendix standalone) ─────────────────
+    colors  = ["firebrick", "darksalmon", "steelblue", "lightblue"]
+    fig_ci, ax_ci = plt.subplots(figsize=(4, 6))
+    bars = ax_ci.bar(methods, means, yerr=errors, capsize=4,
+                     color=colors, edgecolor=None)
+    for bar, m, e in zip(bars, means, errors):
+        ax_ci.text(bar.get_x() + bar.get_width() / 2, m + e + 0.02,
+                   f"{m:.3f}", ha="center", va="bottom", fontsize=FONT_SIZE)
+    ax_ci.set_ylabel("Concordance Index")
+    ax_ci.set_ylim(0, 0.85)
+    _polish(ax_ci)
+    fig_ci.tight_layout()
+    fig_ci.savefig(OUT_APP / "MLSurvival_CI_nestedCV.pdf", dpi=300)
+    plt.close(fig_ci)
+    print("Saved MLSurvival_CI_nestedCV.pdf")
+
+    # ── Nested-CV feature importance boxplots (appendix standalone) ───────────
+    titles  = ["Random Survival Forest", "Gradient Boosting Cox",
+               "Linear Cox", "Elastic-Net Cox"]
+    fig_fi, axes_fi = plt.subplots(2, 2, figsize=(14, 8), sharey=False)
+    axes_fi = axes_fi.flatten()
+    for i, (model_name, df) in enumerate(perm_data.items()):
+        medians   = df.median().sort_values(ascending=False)
+        df_sorted = df[medians.index]
+        sns.boxplot(data=df_sorted, orient="h", ax=axes_fi[i],
+                    color=colors[i], fliersize=3)
+        axes_fi[i].set_title(titles[i], fontsize=FONT_SIZE)
+        axes_fi[i].set_xlabel("Permutation Importance (Δ C-index)")
+        axes_fi[i].set_ylabel("")
+        axes_fi[i].xaxis.set_major_formatter(
+            plt.FuncFormatter(lambda val, pos: f"{val:.2f}"))
+        _polish(axes_fi[i])
+    fig_fi.tight_layout()
+    fig_fi.savefig(OUT_APP / "MLSurvival_featimp_nestedCV.pdf", dpi=300)
+    plt.close(fig_fi)
+    print("Saved MLSurvival_featimp_nestedCV.pdf")
+
     # ── Assemble Figure 4 C + D ──────────────────────────────────────────────
-    png_a4 = OUT_MAIN / "_fig4A_panel.png"
-    png_b4 = OUT_MAIN / "_fig4B_panel.png"
+    png_a4 = OUT_APP / "_fig4A_panel.png"
+    png_b4 = OUT_APP / "_fig4B_panel.png"
     have_r4 = png_a4.exists() and png_b4.exists()
 
     if have_r4:
@@ -624,8 +700,8 @@ def run_survival_ml():
         if i == 0:
             _panel_label(ax_sub, "D", x=-0.20)
 
-    out_name = "fig4_combined.pdf" if have_r4 else "fig4CD_combined.pdf"
-    fig4.savefig(OUT_MAIN / out_name, dpi=300, bbox_inches="tight")
+    out_name = "fig4_combined.pdf" if have_r4 else "MLSurvival_concordance_importances.pdf"
+    fig4.savefig(OUT_APP / out_name, dpi=300, bbox_inches="tight")
     plt.close(fig4)
     print(f"Saved {out_name}")
 
@@ -664,7 +740,7 @@ def run_survival_ml():
     ax_a.legend(frameon=False)
     _polish(ax_a)
     fig_a.tight_layout()
-    fig_a.savefig(OUT_APP / "figA_ML_CI_fullsample.pdf", dpi=300)
+    fig_a.savefig(OUT_APP / "MLSurvival_CI_fullsample.pdf", dpi=300)
     plt.close(fig_a)
 
     perm_data_fs = {
@@ -689,9 +765,11 @@ def run_survival_ml():
         axes_b[i].set_ylabel("")
         _polish(axes_b[i])
     fig_b.tight_layout()
-    fig_b.savefig(OUT_APP / "figA_ML_featimp_fullsample.pdf", dpi=300)
+    fig_b.savefig(OUT_APP / "MLSurvival_featimp_fullsample.pdf", dpi=300)
     plt.close(fig_b)
     print("Saved appendix ML figures")
+
+    return methods, means, errors, perm_data
 
 
 if __name__ == "__main__":

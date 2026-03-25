@@ -50,7 +50,7 @@ OUT_MAIN.mkdir(parents=True, exist_ok=True)
 # ── Nature-style global rcParams ───────────────────────────────────────────────
 FS   = 18   # tick / body
 LAB  = 20   # axis label
-PAN  = 26   # panel letter
+PAN  = 34   # panel letter
 
 mpl.rcParams.update({
     "font.family":       "sans-serif",
@@ -60,8 +60,8 @@ mpl.rcParams.update({
     "axes.labelsize":    LAB,
     "xtick.labelsize":   FS,
     "ytick.labelsize":   FS,
-    "legend.fontsize":   FS - 2,
-    "legend.title_fontsize": FS - 2,
+    "legend.fontsize":   FS,
+    "legend.title_fontsize": FS,
     "axes.linewidth":    1.4,
     "xtick.major.width": 1.4,
     "ytick.major.width": 1.4,
@@ -91,6 +91,11 @@ def _polish(ax):
 def _label(ax, letter, x=-0.10, y=1.06):
     ax.text(x, y, letter, transform=ax.transAxes,
             font_properties=_PAN_FP, va="bottom", ha="left")
+
+
+def _title(ax, text):
+    """Short bold panel title, placed above the axes."""
+    ax.set_title(text, fontsize=FS, fontweight="bold", loc="left", pad=6)
 
 
 def _pct_fmt(ax, axis="y", decimals=1):
@@ -131,17 +136,22 @@ def _draw_irf(ax, df, group_col, y_label,
               ribbon_group=None, ylim=None,
               col_map=IRF_COL, fill_map=IRF_FILL, ls_map=IRF_LS):
     """Generic IRF ribbon+line plot from a tidy dataframe."""
-    groups = df[group_col].unique()
+    groups   = df[group_col].unique()
+    has_nloc = "n_loc" in df.columns
     for g in groups:
         sub  = df[df[group_col] == g].sort_values("horizon")
         col  = col_map.get(g, "black")
         fill = fill_map.get(g, col)
         ls   = ls_map.get(g, "-")
+        if has_nloc and g in ("Teleconnected", "Weakly affected"):
+            leg_label = f"{g} (N={int(sub['n_loc'].iloc[0])})"
+        else:
+            leg_label = g
         if g == ribbon_group:
             ax.fill_between(sub["horizon"], sub["irf_down"], sub["irf_up"],
                             color=fill, alpha=0.20)
-        ax.plot(sub["horizon"], sub["irf_mean"], color=col, lw=1.6,
-                linestyle=ls, label=g)
+        ax.plot(sub["horizon"], sub["irf_mean"], color=col, lw=2.4,
+                linestyle=ls, label=leg_label)
     ax.axhline(0, color="gray", lw=0.8, linestyle="--")
     ax.set_xlabel("Horizon (years)")
     ax.set_ylabel(y_label)
@@ -149,7 +159,7 @@ def _draw_irf(ax, df, group_col, y_label,
     _pct_fmt(ax)
     if ylim:
         ax.set_ylim(ylim)
-    leg = ax.legend(frameon=False, ncol=2, fontsize=FS - 2)
+    ax.legend(loc="upper right", frameon=False, ncol=1, fontsize=FS)
     _polish(ax)
 
 
@@ -178,7 +188,8 @@ def _draw_1A(ax, data):
     ax.set_xlabel("Year")
     ax.set_ylabel("NINO3.4 (°C)")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.22),
-              ncol=2, frameon=False, fontsize=FS - 2)
+              ncol=2, frameon=False, fontsize=FS)
+    _title(ax, "ENSO reconstruction, 1500–1800")
     _polish(ax)
 
 
@@ -226,9 +237,10 @@ def _draw_1B(ax_gantt, ax_count, data, regions, region_colors):
     ax_gantt.set_yticks(list(r_to_y.values()))
     ax_gantt.set_yticklabels(
         [r.replace("Russia/Ukraine", "Russia/Ukr.") for r in regions],
-        fontsize=FS - 2)
+        fontsize=FS)
     ax_gantt.set_xlim(data["Year"].min(), data["Year"].max())
     ax_gantt.tick_params(labelbottom=False)
+    _title(ax_gantt, "Famine chronology by region")
     _polish(ax_gantt)
 
     ax_count.fill_between(yearly["Year"], yearly["N"], color="gray", alpha=0.3)
@@ -294,7 +306,7 @@ def _draw_1C(ax, data, region_colors):
 
     ax.legend(handles=[Patch(color="dimgray",  label="Famine Years (left bar)"),
                         Patch(color="lightgray", label="Famine Periods (right bar)")],
-              loc="lower left", fontsize=FS - 2, frameon=False)
+              loc="upper left", fontsize=FS, frameon=False)
 
 
 def make_fig1():
@@ -303,9 +315,10 @@ def make_fig1():
 
     fig = plt.figure(figsize=(18, 22))
     # Row 0: A full width
-    # Row 1: B (left) + C (right), equal width
+    # Row 1: B (left, narrower) + C (right, wider map)
     gs = gridspec.GridSpec(2, 2, figure=fig,
                            height_ratios=[1, 1.5],
+                           width_ratios=[0.45, 0.55],
                            hspace=0.52, wspace=0.38)
 
     # A – full-width ENSO timeseries
@@ -330,6 +343,8 @@ def make_fig1():
     _draw_1C(ax_c, data, region_colors)
     ax_c.text(-0.05, 1.03, "C", transform=ax_c.transAxes,
               font_properties=_PAN_FP, va="bottom", ha="left")
+    ax_c.set_title("Famine incidence by region", fontsize=FS, fontweight="bold",
+                   loc="left", pad=6)
 
     fig.savefig(OUT_MAIN / "fig1_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -340,11 +355,13 @@ def make_fig1():
 # FIG 2 – Famine onset (A+B from R CSVs, C+D+E from ML)
 # ══════════════════════════════════════════════════════════════════════════════
 def _draw_2A(ax):
+    from scipy.stats import mannwhitneyu
     df = pd.read_csv(OUT_DATA / "fig2A_onset_box.csv")
-    groups = df["Group"].unique()
     colors = {"Famine Onset": "darksalmon", "No Famine": "lightblue"}
+    grp_data = {}
     for i, g in enumerate(["No Famine", "Famine Onset"]):
         sub = df[df["Group"] == g]["nino34"]
+        grp_data[g] = sub
         bp  = ax.boxplot(sub, positions=[i], widths=0.45,
                          patch_artist=True,
                          boxprops=dict(facecolor=colors[g], linewidth=1.3),
@@ -356,10 +373,27 @@ def _draw_2A(ax):
         ax.scatter(np.random.normal(i, 0.07, len(sub)), sub,
                    color="black", alpha=0.45, s=18, zorder=3)
 
+    # Mann-Whitney U significance annotation
+    _, pval = mannwhitneyu(grp_data["Famine Onset"], grp_data["No Famine"],
+                              alternative="greater")
+    y_top = max(grp_data["Famine Onset"].max(), grp_data["No Famine"].max())
+    y_range = y_top - min(grp_data["Famine Onset"].min(), grp_data["No Famine"].min())
+    y_bar = y_top + 0.08 * y_range
+    tick_h = 0.03 * y_range
+    ax.plot([0, 0, 1, 1], [y_bar - tick_h, y_bar, y_bar, y_bar - tick_h],
+            color="black", lw=1.5)
+    stars = "***" if pval < 0.01 else ("**" if pval < 0.05 else
+            ("*" if pval < 0.10 else f"p={pval:.2f}"))
+    ax.text(0.5, y_bar + 0.01 * y_range, stars, ha="center", va="bottom",
+            fontsize=FS + 4, fontweight="bold", color="black")
+    ax.set_ylim(top=y_bar + 0.18 * y_range)
+
     ax.axhline(0, color="black", lw=1.0, linestyle="--")
     ax.set_xticks([0, 1])
-    ax.set_xticklabels(["No Famine", "Famine Onset"])
-    ax.set_ylabel("NINO3.4 (°C)")
+    ax.set_xticklabels(["No Famine", "Famine Onset"], fontsize=FS + 2)
+    ax.set_ylabel("NINO3.4 (°C)", fontsize=LAB + 2)
+    ax.tick_params(axis="both", labelsize=FS + 2)
+    _title(ax, "ENSO at famine onset\n(Central Europe)")
     _polish(ax)
 
 
@@ -370,10 +404,10 @@ def _draw_2B(ax):
                     "FEs + Controls": "firebrick"}
     regions = df["Region"].unique()
     x       = np.arange(len(regions))
-    width   = 0.22
+    width   = 0.18
     offsets = np.linspace(-(len(model_order) - 1) / 2,
                           (len(model_order) - 1) / 2,
-                          len(model_order)) * width * 1.5
+                          len(model_order)) * width
 
     for i, model in enumerate(model_order):
         sub = df[df["model"] == model].set_index("Region").reindex(regions)
@@ -381,88 +415,29 @@ def _draw_2B(ax):
                     yerr=[sub["estimate"] - sub["conf.low"],
                           sub["conf.high"] - sub["estimate"]],
                     fmt="o", color=model_colors[model],
-                    elinewidth=1.2, capsize=3, ms=5,
+                    elinewidth=1.4, capsize=0, ms=6,
                     label=model, zorder=3)
 
     ax.axhline(0, color="black", lw=0.9, linestyle="--")
     ax.set_xticks(x)
-    ax.set_xticklabels(regions, rotation=30, ha="right", fontsize=FS - 1)
-    ax.set_ylabel("Famine Onset Probability")
-    ax.legend(frameon=False, fontsize=FS - 2, ncol=3,
-              loc="upper right")
+    ax.set_xticklabels(regions, rotation=30, ha="right", fontsize=FS + 1)
+    ax.set_ylabel("Famine Onset Probability", fontsize=LAB + 2)
+    ax.tick_params(axis="y", labelsize=FS + 1)
+    ax.legend(loc="best", frameon=False, fontsize=FS + 1, ncol=3)
+    _title(ax, "Probability of Famine Onset")
     _polish(ax)
 
 
-def _run_ml_onset():
-    """Run the GBC for 'All_features' and return result dict."""
-    from sklearn.ensemble import GradientBoostingClassifier
-    from sklearn.model_selection import GridSearchCV, cross_val_score
-    from sklearn.metrics import accuracy_score
-    from sklearn.inspection import permutation_importance
-
-    FEAT_LABELS = {
-        "nino34": "NINO3.4", "ongoing_wars": "Ongoing Wars",
-        "Deaths": "Conflict Deaths", "temp_winter": "NDJF Temp",
-        "temp_summer": "AMJJ Temp", "precip_winter": "NDJF Precip",
-        "precip_summer": "AMJJ Precip", "PDSI": "JJA scPDSI",
-    }
-
-    onset = pd.read_csv(DATA_PROC / "famine_region_data.csv")
-    onset["Decade"] = (onset["Year"] // 10 * 10).astype(str)
-    onset = onset[onset["Region"] == "Central Europe"].copy()
-
-    feat_set = ["nino34", "ongoing_wars", "Deaths", "temp_winter",
-                "temp_summer", "PDSI", "precip_winter"]
-    X = onset[feat_set]
-    y = onset["Famine_start"]
-
-    param_grid = {"max_depth": [1, 3, 5], "n_estimators": [10, 50],
-                  "learning_rate": [0.05, 0.1, 0.3],
-                  "subsample": [0.7, 0.9], "max_features": ["sqrt"],
-                  "min_samples_leaf": [2, 5], "min_samples_split": [5]}
-    clf  = GradientBoostingClassifier(random_state=42)
-    grid = GridSearchCV(clf, param_grid, cv=10, scoring="f1", n_jobs=-1)
-    grid.fit(X, y)
-    best = grid.best_estimator_
-    print(f"  GBC best params: {grid.best_params_}")
-
-    pred = best.predict(X)
-    X_cf = X.copy()
-    mask = (onset["Famine_start"].values == 1) & (onset["nino34"].values > 0)
-    X_cf.loc[mask, "nino34"] = 0
-    pred_cf = best.predict(X_cf)
-
-    df_chron = pd.DataFrame({
-        "Region":                onset["Region"].values,
-        "Year":                  onset["Year"].values,
-        "Observed":              y.values,
-        "Predicted":             ((y.values == 1) & (pred == 1)).astype(int),
-        "Counterfactual":        ((onset["Famine_start"].values == 1) &
-                                  (pred_cf == 1)).astype(int),
-        "NINO34_actual":         onset["nino34"].values,
-        "NINO34_counterfactual": X_cf["nino34"].values,
-    })
-
-    perm = permutation_importance(best, X, y, n_repeats=50,
-                                  random_state=42, scoring="f1", n_jobs=-1)
-    df_imp = pd.concat([
-        pd.DataFrame({"Feature": FEAT_LABELS.get(f, f),
-                      "Importance": perm["importances"][i]})
-        for i, f in enumerate(feat_set)
-    ])
-
-    cv_scores     = cross_val_score(best, X, y, cv=10, scoring="accuracy")
-    in_sample_acc = accuracy_score(y, pred)
-
-    return dict(df_chron=df_chron, df_imp=df_imp,
-                cv_scores=cv_scores, in_sample_acc=in_sample_acc)
-
-
-def _draw_2C_chron(ax_top, ax_bot, df_chron):
-    years     = sorted(df_chron["Year"].unique())
+def _draw_2C_chron(ax_top, ax_bot, df_chron, onset_raw):
+    """Chronology panel: bars use actual famine duration (Famine_dur), matching notebook."""
+    years      = sorted(df_chron["Year"].unique())
     ymin, ymax = min(years), max(years)
-    colors    = {"Observed": "firebrick", "Predicted": "darksalmon",
-                 "Counterfactual": "cornflowerblue"}
+    colors     = {"Observed": "firebrick", "Predicted": "darksalmon",
+                  "Counterfactual": "cornflowerblue"}
+    # Build duration lookup: Year → Famine_dur (from raw onset data)
+    dur_lookup = (onset_raw[onset_raw["Famine_start"] == 1]
+                  .set_index("Year")["Famine_dur"].to_dict()
+                  if "Famine_dur" in onset_raw.columns else {})
 
     y_pos = {}
     for i, reg in enumerate(sorted(df_chron["Region"].unique())):
@@ -473,7 +448,8 @@ def _draw_2C_chron(ax_top, ax_bot, df_chron):
         rd = df_chron[df_chron["Region"] == reg].sort_values("Year")
         for sc in ["Observed", "Predicted", "Counterfactual"]:
             for yr in rd.loc[rd[sc] == 1, "Year"]:
-                ax_top.barh(y=y_pos[reg][sc], width=1, left=yr, height=1.2,
+                dur = dur_lookup.get(yr, 1)
+                ax_top.barh(y=y_pos[reg][sc], width=dur, left=yr, height=1.2,
                             color=colors[sc], edgecolor="black",
                             linewidth=0.9, alpha=0.8)
 
@@ -487,21 +463,21 @@ def _draw_2C_chron(ax_top, ax_bot, df_chron):
     ax_top.set_yticklabels(labels, fontsize=FS - 1)
     ax_top.set_xlim(ymin - 1, ymax + 1)
     ax_top.tick_params(labelbottom=False)
+    _title(ax_top, "Predicted vs. observed famine onsets")
     _polish(ax_top)
 
     nino_a = df_chron.groupby("Year")["NINO34_actual"].first().reindex(years, fill_value=0).values
     nino_c = df_chron.groupby("Year")["NINO34_counterfactual"].first().reindex(years, fill_value=0).values
     ax_bot.plot(years, nino_a, color="crimson",    lw=1.4, label="Observed",       alpha=0.85)
     ax_bot.plot(years, nino_c, color="dodgerblue", lw=1.4, label="Counterfactual", alpha=0.9)
-    dmask = (nino_a != nino_c) & (nino_a >= 0.5)
-    ax_bot.scatter(np.array(years)[dmask], nino_a[dmask],
-                   color="red", s=25, zorder=5, label="> 0.5°C")
-    ax_bot.axhline(0,   color="black", lw=0.8, linestyle="-",  alpha=0.3)
-    ax_bot.axhline(0.5, color="black", lw=0.8, linestyle="--", alpha=0.5)
+    ax_bot.axhline(0, color="black", lw=0.8, linestyle="-", alpha=0.3)
     ax_bot.set_xlim(ymin - 1, ymax + 1)
     ax_bot.set_xlabel("Year")
     ax_bot.set_ylabel("NINO3.4 (°C)")
-    ax_bot.legend(frameon=False, fontsize=FS - 2)
+    leg = ax_bot.legend(loc="lower right", frameon=True, fontsize=FS,
+                        framealpha=0.9, edgecolor="gray",
+                        handlelength=2.0, labelspacing=0.4)
+    leg.get_frame().set_linewidth(0.8)
     _polish(ax_bot)
 
 
@@ -509,8 +485,10 @@ def _draw_2D(ax, df_imp):
     med_order = df_imp.groupby("Feature")["Importance"].median().sort_values(ascending=False).index
     sns.boxplot(x="Importance", y="Feature", data=df_imp,
                 order=med_order, palette="Reds_r", ax=ax)
-    ax.set_xlabel("Permutation Importance")
-    ax.set_ylabel("")
+    ax.set_xlabel("Permutation Importance", fontsize=LAB + 2)
+    ax.set_ylabel("", fontsize=LAB + 2)
+    ax.tick_params(axis="both", labelsize=FS + 2)
+    _title(ax, "Feature importances")
     _polish(ax)
 
 
@@ -523,25 +501,33 @@ def _draw_2E(ax, in_sample_acc, cv_scores):
                 palette={"In-sample": "firebrick", "Cross-Validation": "darksalmon"},
                 ax=ax)
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
-                color="black", fmt="none", capsize=4, elinewidth=1.5)
+                color="black", fmt="none", capsize=0, elinewidth=1.5)
     ax.set_xlim(0, 1)
-    ax.set_xlabel("Accuracy")
+    ax.set_xlabel("Accuracy", fontsize=LAB + 2)
+    ax.tick_params(axis="both", labelsize=FS + 2)
+    _title(ax, "Prediction skill")
     _polish(ax)
 
 
 def make_fig2():
     print("  Running ML onset classifier …")
-    ml = _run_ml_onset()
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+    ml07 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ml07)
+    ml = ml07.run_onset_classifier()
 
-    fig = plt.figure(figsize=(18, 22))
+    fig = plt.figure(figsize=(22, 20))
     # Row 0: A (left) + B (right)
     # Row 1: C chronology (left ~54%) + D+E stacked (right ~45%)
     gs = gridspec.GridSpec(2, 1, figure=fig,
                            height_ratios=[1.0, 2.2],
-                           hspace=0.52)
+                           hspace=0.46)
 
     # ── Row 0: A + B ──────────────────────────────────────────────────────────
     gs_top = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0],
+                                              width_ratios=[0.35, 0.65],
                                               wspace=0.40)
     ax_a = fig.add_subplot(gs_top[0])
     _draw_2A(ax_a)
@@ -559,11 +545,11 @@ def make_fig2():
     # C – chronology (left half, split top/bottom)
     gs_c = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bot[0],
-        height_ratios=[2, 1], hspace=0.08,
+        height_ratios=[1.6, 1], hspace=0.08,
     )
     ax_c1 = fig.add_subplot(gs_c[0])
     ax_c2 = fig.add_subplot(gs_c[1])
-    _draw_2C_chron(ax_c1, ax_c2, ml["df_chron"])
+    _draw_2C_chron(ax_c1, ax_c2, ml["df_chron"], ml["onset"])
     _label(ax_c1, "C")
 
     # D + E stacked (right half)
@@ -586,20 +572,28 @@ def make_fig2():
 
 def _draw_irf_errorbar(ax, df, group_col, y_label,
                        ylim=None,
-                       col_map=IRF_COL, ls_map=IRF_LS):
+                       col_map=IRF_COL, ls_map=IRF_LS,
+                       add_legend=True):
     """IRF plot using points + whiskers (errorbar) – no ribbon lines."""
-    groups = df[group_col].unique()
-    n      = len(groups)
+    groups  = df[group_col].unique()
+    n       = len(groups)
     offsets = np.linspace(-0.15, 0.15, n) if n > 1 else [0]
+    has_nloc = "n_loc" in df.columns
     for g, offset in zip(groups, offsets):
         sub = df[df[group_col] == g].sort_values("horizon")
         col = col_map.get(g, "black")
+        # Add N= to legend for Teleconnected/Weakly affected groups
+        if has_nloc and g in ("Teleconnected", "Weakly affected"):
+            nloc = int(sub["n_loc"].iloc[0])
+            leg_label = f"{g} (N={nloc})"
+        else:
+            leg_label = g
         ax.errorbar(sub["horizon"] + offset,
                     sub["irf_mean"],
                     yerr=[sub["irf_mean"] - sub["irf_down"],
                           sub["irf_up"]   - sub["irf_mean"]],
-                    fmt="o", color=col, elinewidth=1.2, capsize=3, ms=5,
-                    label=g, zorder=3)
+                    fmt="o", color=col, elinewidth=2.0, capsize=0, ms=8,
+                    label=leg_label, zorder=3)
     ax.axhline(0, color="gray", lw=0.8, linestyle="--")
     ax.set_xlabel("Horizon (years)")
     ax.set_ylabel(y_label)
@@ -607,7 +601,8 @@ def _draw_irf_errorbar(ax, df, group_col, y_label,
     _pct_fmt(ax)
     if ylim:
         ax.set_ylim(ylim)
-    ax.legend(frameon=False, ncol=2, fontsize=FS - 2)
+    if add_legend:
+        ax.legend(loc="upper right", frameon=False, ncol=1, fontsize=FS)
     _polish(ax)
 
 
@@ -619,23 +614,38 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     """Draw a single teleconnection map panel (used for A and B)."""
     import numpy as np
     from matplotlib.colors import BoundaryNorm
-
-    levels  = np.linspace(-0.4, 0.4, 17)
-    cmap_   = plt.get_cmap(cmap, len(levels) - 1)
-    norm    = BoundaryNorm(levels, ncolors=cmap_.N)
+    levels  = np.linspace(-0.2, 0.2, 17)
+    cmap_   = plt.get_cmap(cmap, len(levels) + 1)
+    norm    = BoundaryNorm(levels, ncolors=cmap_.N, extend="both")
 
     im = ax.pcolormesh(lon2d, lat2d, corr_vals,
                        cmap=cmap_, norm=norm, shading="auto",
                        transform=ccrs.PlateCarree())
     sig = p_vals <= alpha
-    ax.scatter(lon2d[sig], lat2d[sig], s=4, color="black",
-               transform=ccrs.PlateCarree(), zorder=5)
-    ax.coastlines(linewidth=0.7)
+    ax.scatter(lon2d[sig], lat2d[sig], s=5, color="black",
+               transform=ccrs.PlateCarree(), zorder=5, alpha=0.6)
+    ax.coastlines(linewidth=0.9)
     ax.add_feature(cfeature.BORDERS, linestyle=":", linewidth=0.5)
+    ax.add_feature(cfeature.LAND, facecolor="whitesmoke", zorder=0)
+    ax.add_feature(cfeature.OCEAN, facecolor="aliceblue", zorder=0)
     ax.set_extent([-10, 35, 36, 70], crs=ccrs.PlateCarree())
-    plt.colorbar(im, ax=ax, orientation="vertical",
-                 fraction=0.046, pad=0.04, label="Pearson r")
-    ax.set_title(title, fontsize=FS)
+
+    # Gridlines with lat/lon labels
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                      linewidth=0.6, color="gray", alpha=0.5, linestyle="--")
+    gl.top_labels   = False
+    gl.right_labels = False
+    gl.xlocator = mticker.FixedLocator([-10, 0, 10, 20, 30])
+    gl.ylocator = mticker.FixedLocator([40, 50, 60, 70])
+    gl.xlabel_style = {"size": FS - 3}
+    gl.ylabel_style = {"size": FS - 3}
+
+    cb = plt.colorbar(im, ax=ax, orientation="vertical",
+                      fraction=0.046, pad=0.06, label="Pearson r",
+                      extend="both")
+    cb.ax.tick_params(labelsize=FS - 3)
+    cb.set_label("Pearson r", fontsize=FS - 2)
+    ax.set_title(title, fontsize=FS, fontweight="bold", loc="left")
 
 
 def _compute_teleconnections():
@@ -716,12 +726,11 @@ def _compute_teleconnections():
         xds_p["precip"] = (np.sqrt(np.cos(np.deg2rad(xds_p["latitude"])) + 1e-6)
                            * xds_p["totprec"] * 86400 * 30)
         xds_eu = xds_p.sel(latitude=slice(70, 35), longitude=slice(-15, 35))
-        summer = (xds_eu.sel(time=xds_eu.time.dt.month.isin([4, 5, 6, 7]))
-                  .groupby(xds_eu.sel(time=xds_eu.time.dt.month.isin([4, 5, 6, 7]))
-                            .time.dt.year)
-                  .mean(dim="time"))
-        # rebuild Year coordinate
-        summer = summer.rename({"group": "Year"})
+        xds_eu_amjj = xds_eu.sel(time=xds_eu.time.dt.month.isin([4, 5, 6, 7]))
+        summer = xds_eu_amjj.groupby(xds_eu_amjj.time.dt.year).mean(dim="time")
+        # rebuild Year coordinate (dim name varies across xarray versions)
+        year_dim = [d for d in summer.dims if d not in ("latitude", "longitude")][0]
+        summer = summer.rename({year_dim: "Year"})
         nino_xr2 = xr.Dataset.from_dataframe(nino_df.set_index("Year"))
         merged2  = xr.merge([summer, nino_xr2])
         precip   = merged2["precip"].transpose("Year", "latitude", "longitude")
@@ -745,43 +754,50 @@ def make_fig3():
     df_d = pd.read_csv(OUT_DATA / "fig3D_irf_yield_noWR.csv")
 
     proj = ccrs.EuroPP()
-    fig  = plt.figure(figsize=(18, 18))
+    fig  = plt.figure(figsize=(22, 20))
     gs   = gridspec.GridSpec(2, 2, figure=fig,
-                             hspace=0.48, wspace=0.36)
+                             hspace=0.55, wspace=0.36,
+                             height_ratios=[1.5, 1.0])
 
     # A – PDSI map
     ax_a = fig.add_subplot(gs[0, 0], projection=proj)
     if corr_pdsi is not None:
         _draw_teleco_map(ax_a, corr_pdsi, p_pdsi, lat2d_p, lon2d_p,
-                         "NINO3.4 × scPDSI (1500–1800)", "BrBG")
+                         "ENSO / PDSI correlation", "BrBG")
     else:
         ax_a.text(0.5, 0.5, "Data not found", transform=ax_a.transAxes,
                   ha="center", va="center")
-    ax_a.text(-0.05, 1.04, "A", transform=ax_a.transAxes,
+    ax_a.text(0.01, 1.04, "A", transform=ax_a.transAxes,
               font_properties=_PAN_FP, va="bottom", ha="left")
 
     # B – precipitation map
     ax_b = fig.add_subplot(gs[0, 1], projection=proj)
     if corr_prec is not None:
         _draw_teleco_map(ax_b, corr_prec, p_prec, lat2d_pr, lon2d_pr,
-                         "NINO3.4 × Summer Precip (1500–1800)", "BrBG")
+                         "ENSO / Precip correlation", "BrBG")
     else:
         ax_b.text(0.5, 0.5, "Data not found", transform=ax_b.transAxes,
                   ha="center", va="center")
-    ax_b.text(-0.05, 1.04, "B", transform=ax_b.transAxes,
+    ax_b.text(0.01, 1.04, "B", transform=ax_b.transAxes,
               font_properties=_PAN_FP, va="bottom", ha="left")
 
     # C – Wheat/Rye IRF (points + whiskers)
     ax_c = fig.add_subplot(gs[1, 0])
-    _draw_irf_errorbar(ax_c, df_c, "label", "Wheat/Rye Harvest Variation",
-                       ylim=(-0.13, 0.06))
-    _label(ax_c, "C")
+    _draw_irf_errorbar(ax_c, df_c, "label", "% Harvest response",
+                       ylim=(-0.13, 0.06), add_legend=False)
+    ax_c.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
+                ncol=2, frameon=False, fontsize=FS)
+    _title(ax_c, "Wheat & rye response")
+    _label(ax_c, "C", x=0.01, y=1.42)
 
     # D – Other grain IRF (points + whiskers)
     ax_d = fig.add_subplot(gs[1, 1])
-    _draw_irf_errorbar(ax_d, df_d, "label", "Other Grain Harvest Variation",
-                       ylim=(-0.13, 0.06))
-    _label(ax_d, "D")
+    _draw_irf_errorbar(ax_d, df_d, "label", "% Harvest response",
+                       ylim=(-0.13, 0.06), add_legend=False)
+    ax_d.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
+                ncol=2, frameon=False, fontsize=FS)
+    _title(ax_d, "Other grains response")
+    _label(ax_d, "D", x=0.01, y=1.42)
 
     fig.savefig(OUT_MAIN / "fig3_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -791,81 +807,6 @@ def make_fig3():
 # ══════════════════════════════════════════════════════════════════════════════
 # FIG 4 – Famine duration (A+B Cox, C+D ML survival)
 # ══════════════════════════════════════════════════════════════════════════════
-def _run_ml_survival():
-    """Run RSF/GBSA/CoxPH/CoxNet and return concordance + importance data."""
-    from sklearn.model_selection import GridSearchCV, cross_val_score, KFold
-    from sklearn.inspection import permutation_importance
-    from sksurv.linear_model import CoxPHSurvivalAnalysis, CoxnetSurvivalAnalysis
-    from sksurv.ensemble import (RandomSurvivalForest,
-                                 GradientBoostingSurvivalAnalysis)
-    from sksurv.util import Surv
-    from sksurv.metrics import concordance_index_censored
-
-    FEAT_LABELS = {
-        "avg_nino34": "NINO3.4", "avg_temp_summer": "AMJJ Temp",
-        "avg_temp_winter": "NDJF Temp", "avg_precip_winter": "NDJF Precip",
-        "avg_PDSI": "JJA scPDSI", "avg_Deaths": "Conflict Deaths",
-        "avg_ongoing_wars": "Ongoing Wars",
-    }
-
-    famine = pd.read_csv(DATA_PROC / "famine_survival.csv")
-    famine["event_observed"] = True
-    features = list(FEAT_LABELS.keys())
-    X = famine[features]
-    X = (X - X.mean()) / X.std()
-    y = Surv.from_dataframe("event_observed", "duration", famine.loc[X.index])
-
-    def c_scorer(est, X_, y_):
-        return concordance_index_censored(
-            y_["event_observed"], y_["duration"], est.predict(X_))[0]
-
-    icv = KFold(n_splits=10, shuffle=True, random_state=42)
-    ocv = KFold(n_splits=10, shuffle=True, random_state=42)
-
-    results = {}
-    for name, model, param_grid in [
-        ("RSF",
-         RandomSurvivalForest(random_state=42, n_jobs=-1),
-         {"n_estimators": [20, 50], "min_samples_split": [5, 10],
-          "min_samples_leaf": [5, 10], "max_features": ["sqrt"]}),
-        ("CoxGB",
-         GradientBoostingSurvivalAnalysis(random_state=42),
-         {"n_estimators": [20, 30], "learning_rate": [0.1, 0.5],
-          "max_depth": [1, 3]}),
-        ("CoxPH",
-         CoxPHSurvivalAnalysis(),
-         {}),
-        ("CoxNet",
-         CoxnetSurvivalAnalysis(max_iter=10000),
-         {"alphas": [[0.01],[0.1],[1]], "l1_ratio": [0.5, 1.0]}),
-    ]:
-        print(f"  Running {name} …")
-        if param_grid:
-            gs  = GridSearchCV(model, param_grid, scoring=c_scorer,
-                               cv=icv, n_jobs=-1)
-            scores = cross_val_score(gs, X, y, cv=ocv, scoring=c_scorer)
-            gs.fit(X, y)
-            fitted = gs.best_estimator_
-        else:
-            scores = cross_val_score(model, X, y, cv=ocv, scoring=c_scorer)
-            model.fit(X, y)
-            fitted = model
-
-        perm = permutation_importance(fitted, X, y, n_repeats=30,
-                                      random_state=42, scoring=c_scorer)
-        results[name] = {
-            "scores": scores,
-            "perm":   pd.DataFrame(perm.importances.T,
-                                   columns=[FEAT_LABELS[f] for f in features])
-        }
-
-    methods = list(results.keys())
-    means   = [results[m]["scores"].mean() for m in methods]
-    errors  = [results[m]["scores"].std()  for m in methods]
-    perm_dfs = {m: results[m]["perm"] for m in methods}
-    return methods, means, errors, perm_dfs
-
-
 def _draw_4A(ax):
     df = pd.read_csv(OUT_DATA / "fig4A_cox_coefs.csv")
     df = df.sort_values("coef")
@@ -874,8 +815,9 @@ def _draw_4A(ax):
                 fmt="o", color="firebrick", elinewidth=1.4, capsize=4, ms=6)
     ax.axvline(0, color="black", lw=0.9, linestyle="--")
     ax.set_yticks(range(len(df)))
-    ax.set_yticklabels(df["Model"], fontsize=FS - 1)
-    ax.set_xlabel("NINO3.4 log hazard ratio")
+    ax.set_yticklabels(df["Model"], fontsize=FS + 1)
+    ax.set_xlabel("NINO3.4 log hazard ratio", fontsize=LAB + 2)
+    _title(ax, "Cox hazard ratios")
     _polish(ax)
 
 
@@ -895,7 +837,7 @@ def _draw_4B(ax):
                 color=enso_colors[label],
                 marker=enso_markers[label], ms=5, lw=1.6, label=label)
 
-    # Delta annotation: El Niño (+2°) − La Niña (−1°) at year 3
+    # Delta annotation: El Niño (+2°) − La Niña (−1°) at year 3 (matches Rmd)
     year_of_interest = 3
     surv_elni = (df[df["ENSO"] == "Strong El Niño (+2°)"]
                  .sort_values("time")
@@ -906,13 +848,18 @@ def _draw_4B(ax):
     try:
         idx_en = surv_elni.index.get_indexer([year_of_interest], method="nearest")[0]
         idx_ln = surv_lani.index.get_indexer([year_of_interest], method="nearest")[0]
-        delta_pp = (surv_elni.iloc[idx_en] - surv_lani.iloc[idx_ln]) * 100
+        s_en   = surv_elni.iloc[idx_en]
+        s_ln   = surv_lani.iloc[idx_ln]
+        delta_pp = (s_en - s_ln) * 100
+        ax.axvline(year_of_interest, color="black", lw=1.0, linestyle="--")
+        delta_text = (f"$\\Delta$ El Niño $-$ La Niña = {round(delta_pp):+d} p.p.")
         ax.annotate(
-            f"$\\Delta$ El Niño (+2°) $-$ La Niña ($-$1°) = {delta_pp:+.1f} pp\n"
-            f"(at year {year_of_interest})",
-            xy=(0.97, 0.95), xycoords="axes fraction",
-            ha="right", va="top", fontsize=FS - 2,
-            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.7),
+            delta_text,
+            xy=(8, 0.40),
+            xycoords="data",
+            ha="left", va="center", fontsize=FS,
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.85,
+                      linewidth=0.5),
         )
     except Exception:
         pass
@@ -920,54 +867,70 @@ def _draw_4B(ax):
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.set_xlabel("Famine duration (years)")
     ax.set_ylabel("Survival probability")
-    ax.legend(frameon=False, fontsize=FS - 2, ncol=2)
+    ax.legend(loc="best", frameon=False, fontsize=FS, ncol=2)
+    _title(ax, "Duration under ENSO scenarios")
     _polish(ax)
 
 
 def make_fig4():
     print("  Running ML survival models …")
-    methods, means, errors, perm_dfs = _run_ml_survival()
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+    ml07 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ml07)
+    methods, means, errors, perm_dfs = ml07.run_survival_ml()
 
     colors = ["firebrick", "darksalmon", "steelblue", "lightblue"]
     titles = ["Random Survival Forest", "Gradient Boosting Cox",
               "Linear Cox", "Elastic-Net Cox"]
 
-    fig = plt.figure(figsize=(18, 18))
+    fig = plt.figure(figsize=(24, 20))
     gs  = gridspec.GridSpec(2, 2, figure=fig,
-                            hspace=0.52, wspace=0.40)
+                            hspace=0.52, wspace=0.48,
+                            width_ratios=[0.30, 0.70],
+                            height_ratios=[1.0, 1.55])
 
     ax_a = fig.add_subplot(gs[0, 0])
     _draw_4A(ax_a)
+    ax_a.tick_params(axis="both", labelsize=FS + 2)
+    ax_a.set_xlabel(ax_a.get_xlabel(), fontsize=LAB + 2)
     _label(ax_a, "A")
 
     ax_b = fig.add_subplot(gs[0, 1])
     _draw_4B(ax_b)
+    ax_b.tick_params(axis="both", labelsize=FS + 2)
+    ax_b.set_xlabel(ax_b.get_xlabel(), fontsize=LAB + 2)
+    ax_b.set_ylabel(ax_b.get_ylabel(), fontsize=LAB + 2)
     _label(ax_b, "B")
 
-    # C – concordance bar chart
+    # C – concordance bar chart (narrower column)
     ax_c = fig.add_subplot(gs[1, 0])
     bars = ax_c.bar(methods, means, yerr=errors, capsize=5,
                     color=colors, edgecolor=None, width=0.55)
     for bar, m, e in zip(bars, means, errors):
         ax_c.text(bar.get_x() + bar.get_width() / 2, m + e + 0.02,
-                  f"{m:.3f}", ha="center", va="bottom", fontsize=FS)
-    ax_c.set_ylabel("Concordance Index")
+                  f"{m:.3f}", ha="center", va="bottom", fontsize=FS + 2)
+    ax_c.set_ylabel("Concordance Index", fontsize=LAB + 2)
     ax_c.set_ylim(0, 0.9)
+    ax_c.tick_params(axis="both", labelsize=FS + 2)
+    _title(ax_c, "Model concordance (C-index)")
     _polish(ax_c)
     _label(ax_c, "C")
 
-    # D – permutation importances 2×2
+    # D – permutation importances 2×2 (wider column)
     gs_d = gridspec.GridSpecFromSubplotSpec(
-        2, 2, subplot_spec=gs[1, 1], hspace=0.5, wspace=0.45)
+        2, 2, subplot_spec=gs[1, 1], hspace=0.55, wspace=0.50)
     for i, (m, title) in enumerate(zip(methods, titles)):
         ax_sub = fig.add_subplot(gs_d[i // 2, i % 2])
         df  = perm_dfs[m]
         med = df.median().sort_values(ascending=False)
         sns.boxplot(data=df[med.index], orient="h",
                     color=colors[i], fliersize=2, ax=ax_sub)
-        ax_sub.set_title(title, fontsize=FS - 1)
-        ax_sub.set_xlabel("ΔC-index")
+        ax_sub.set_title(title, fontsize=FS + 1, fontweight="bold")
+        ax_sub.set_xlabel("ΔC-index", fontsize=LAB)
         ax_sub.set_ylabel("")
+        ax_sub.tick_params(axis="both", labelsize=FS)
         _polish(ax_sub)
         if i == 0:
             _label(ax_sub, "D", x=-0.22)
@@ -986,12 +949,14 @@ def make_fig5():
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(18, 7))
 
-    _draw_irf(ax_a, df_a, "label", "Log Grain Price",
+    _draw_irf(ax_a, df_a, "label", "Log grain price",
               ribbon_group="All regions")
+    _title(ax_a, "Grain price response to ENSO")
     _label(ax_a, "A")
 
-    _draw_irf(ax_b, df_b, "species", "Log Fish Price",
+    _draw_irf(ax_b, df_b, "species", "Log fish price",
               ribbon_group="All")
+    _title(ax_b, "Fish price response to ENSO")
     _label(ax_b, "B")
 
     fig.tight_layout(w_pad=4)
