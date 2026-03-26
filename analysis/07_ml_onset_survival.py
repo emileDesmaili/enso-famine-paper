@@ -50,13 +50,13 @@ OUT_MAIN.mkdir(parents=True, exist_ok=True)
 OUT_APP.mkdir(parents=True, exist_ok=True)
 
 # ── Nature-style global rcParams ───────────────────────────────────────────────
-FONT_SIZE  = 14
-LABEL_SIZE = 16
-PANEL_SIZE = 22
+FONT_SIZE  = 22
+LABEL_SIZE = 24
+PANEL_SIZE = 42
 
 mpl.rcParams.update({
     "font.family":     "sans-serif",
-    "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+    "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
     "font.size":           FONT_SIZE,
     "axes.titlesize":      FONT_SIZE,
     "axes.labelsize":      LABEL_SIZE,
@@ -107,7 +107,7 @@ def _polish(ax):
                    direction="out", labelsize=FONT_SIZE)
 
 
-def _panel_label(ax, letter, x=-0.12, y=1.05):
+def _panel_label(ax, letter, x=-0.16, y=1.05):
     ax.text(x, y, letter, transform=ax.transAxes,
             fontsize=PANEL_SIZE, fontweight="bold",
             va="bottom", ha="left")
@@ -681,7 +681,7 @@ def run_survival_ml():
     ax_c4.set_ylabel("Concordance Index")
     ax_c4.set_ylim(0, 0.85)
     _polish(ax_c4)
-    _panel_label(ax_c4, "C")
+    _panel_label(ax_c4, "c")
 
     # Panel D: permutation importances 2×2
     gs_d = gridspec.GridSpecFromSubplotSpec(2, 2, subplot_spec=ax_d4.get_subplotspec(),
@@ -698,7 +698,7 @@ def run_survival_ml():
         ax_sub.set_ylabel("")
         _polish(ax_sub)
         if i == 0:
-            _panel_label(ax_sub, "D", x=-0.20)
+            _panel_label(ax_sub, "d", x=-0.20)
 
     out_name = "fig4_combined.pdf" if have_r4 else "MLSurvival_concordance_importances.pdf"
     fig4.savefig(OUT_APP / out_name, dpi=300, bbox_inches="tight")

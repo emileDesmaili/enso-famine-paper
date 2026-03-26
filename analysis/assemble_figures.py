@@ -26,6 +26,7 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore")
 
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -48,13 +49,13 @@ OUT_MAIN  = Path(__file__).parent / "output" / "figures" / "main"
 OUT_MAIN.mkdir(parents=True, exist_ok=True)
 
 # ── Nature-style global rcParams ───────────────────────────────────────────────
-FS   = 18   # tick / body
-LAB  = 20   # axis label
-PAN  = 34   # panel letter
+FS   = 22   # tick / body
+LAB  = 24   # axis label
+PAN  = 42   # panel letter
 
 mpl.rcParams.update({
     "font.family":       "sans-serif",
-    "font.sans-serif":   ["Arial", "Helvetica", "DejaVu Sans"],
+    "font.sans-serif":   ["Helvetica", "Arial", "DejaVu Sans"],
     "font.size":         FS,
     "axes.titlesize":    FS,
     "axes.labelsize":    LAB,
@@ -75,8 +76,8 @@ mpl.rcParams.update({
     "ps.fonttype":       42,
 })
 
-# FontProperties for small-caps panel letters
-_PAN_FP = fm.FontProperties(size=PAN, weight="bold", variant="small-caps")
+# FontProperties for panel letters
+_PAN_FP = fm.FontProperties(size=PAN, weight="bold")
 
 
 def _polish(ax):
@@ -88,7 +89,7 @@ def _polish(ax):
                    direction="out")
 
 
-def _label(ax, letter, x=-0.10, y=1.06):
+def _label(ax, letter, x=-0.16, y=1.06):
     ax.text(x, y, letter, transform=ax.transAxes,
             font_properties=_PAN_FP, va="bottom", ha="left")
 
@@ -134,10 +135,12 @@ IRF_LS   = {"All regions":        "-",
 # ══════════════════════════════════════════════════════════════════════════════
 def _draw_irf(ax, df, group_col, y_label,
               ribbon_group=None, ylim=None,
-              col_map=IRF_COL, fill_map=IRF_FILL, ls_map=IRF_LS):
+              col_map=IRF_COL, fill_map=IRF_FILL, ls_map=IRF_LS,
+              legend_kw=None):
     """Generic IRF ribbon+line plot from a tidy dataframe."""
-    groups   = df[group_col].unique()
-    has_nloc = "n_loc" in df.columns
+    groups      = df[group_col].unique()
+    has_nloc    = "n_loc" in df.columns
+    ribbon_set  = {ribbon_group} if isinstance(ribbon_group, str) else set(ribbon_group or [])
     for g in groups:
         sub  = df[df[group_col] == g].sort_values("horizon")
         col  = col_map.get(g, "black")
@@ -147,7 +150,7 @@ def _draw_irf(ax, df, group_col, y_label,
             leg_label = f"{g} (N={int(sub['n_loc'].iloc[0])})"
         else:
             leg_label = g
-        if g == ribbon_group:
+        if g in ribbon_set:
             ax.fill_between(sub["horizon"], sub["irf_down"], sub["irf_up"],
                             color=fill, alpha=0.20)
         ax.plot(sub["horizon"], sub["irf_mean"], color=col, lw=2.4,
@@ -159,7 +162,10 @@ def _draw_irf(ax, df, group_col, y_label,
     _pct_fmt(ax)
     if ylim:
         ax.set_ylim(ylim)
-    ax.legend(loc="upper right", frameon=False, ncol=1, fontsize=FS)
+    kw = dict(loc="upper right", frameon=False, ncol=1, fontsize=FS)
+    if legend_kw:
+        kw.update(legend_kw)
+    ax.legend(**kw)
     _polish(ax)
 
 
@@ -318,13 +324,13 @@ def make_fig1():
     # Row 1: B (left, narrower) + C (right, wider map)
     gs = gridspec.GridSpec(2, 2, figure=fig,
                            height_ratios=[1, 1.5],
-                           width_ratios=[0.45, 0.55],
+                           width_ratios=[0.38, 0.62],
                            hspace=0.52, wspace=0.38)
 
     # A – full-width ENSO timeseries
     ax_a = fig.add_subplot(gs[0, :])
     _draw_1A(ax_a, data)
-    _label(ax_a, "A")
+    _label(ax_a, "a")
 
     # B – Gantt + count stacked, bottom-left
     gs_b = gridspec.GridSpecFromSubplotSpec(
@@ -334,15 +340,14 @@ def make_fig1():
     ax_b1 = fig.add_subplot(gs_b[0])
     ax_b2 = fig.add_subplot(gs_b[1], sharex=ax_b1)
     _draw_1B(ax_b1, ax_b2, data, regions, region_colors)
-    _label(ax_b1, "B")
+    _label(ax_b1, "b")
 
     # C – geo bar-map, bottom-right
     proj = ccrs.LambertConformal(central_longitude=10, central_latitude=50,
                                  standard_parallels=(45, 55))
     ax_c = fig.add_subplot(gs[1, 1], projection=proj)
     _draw_1C(ax_c, data, region_colors)
-    ax_c.text(-0.05, 1.03, "C", transform=ax_c.transAxes,
-              font_properties=_PAN_FP, va="bottom", ha="left")
+    _label(ax_c, "c", x=-0.10)
     ax_c.set_title("Famine incidence by region", fontsize=FS, fontweight="bold",
                    loc="left", pad=6)
 
@@ -510,13 +515,21 @@ def _draw_2E(ax, in_sample_acc, cv_scores):
 
 
 def make_fig2():
-    print("  Running ML onset classifier …")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
-    ml07 = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ml07)
-    ml = ml07.run_onset_classifier()
+    _cache2 = OUT_DATA / "_ml_onset_cache.pkl"
+    if _cache2.exists():
+        print("  Loading ML onset classifier from cache …")
+        with open(_cache2, "rb") as f:
+            ml = pickle.load(f)
+    else:
+        print("  Running ML onset classifier …")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+        ml07 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ml07)
+        ml = ml07.run_onset_classifier()
+        with open(_cache2, "wb") as f:
+            pickle.dump(ml, f)
 
     fig = plt.figure(figsize=(22, 20))
     # Row 0: A (left) + B (right)
@@ -531,11 +544,11 @@ def make_fig2():
                                               wspace=0.40)
     ax_a = fig.add_subplot(gs_top[0])
     _draw_2A(ax_a)
-    _label(ax_a, "A")
+    _label(ax_a, "a")
 
     ax_b = fig.add_subplot(gs_top[1])
     _draw_2B(ax_b)
-    _label(ax_b, "B")
+    _label(ax_b, "b")
 
     # ── Row 1: C (left 54%) + D/E stacked (right 45%) ─────────────────────────
     gs_bot = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[1],
@@ -550,7 +563,7 @@ def make_fig2():
     ax_c1 = fig.add_subplot(gs_c[0])
     ax_c2 = fig.add_subplot(gs_c[1])
     _draw_2C_chron(ax_c1, ax_c2, ml["df_chron"], ml["onset"])
-    _label(ax_c1, "C")
+    _label(ax_c1, "c")
 
     # D + E stacked (right half)
     gs_de = gridspec.GridSpecFromSubplotSpec(
@@ -559,11 +572,11 @@ def make_fig2():
     )
     ax_d = fig.add_subplot(gs_de[0])
     _draw_2D(ax_d, ml["df_imp"])
-    _label(ax_d, "D")
+    _label(ax_d, "d")
 
     ax_e = fig.add_subplot(gs_de[1])
     _draw_2E(ax_e, ml["in_sample_acc"], ml["cv_scores"])
-    _label(ax_e, "E")
+    _label(ax_e, "e")
 
     fig.savefig(OUT_MAIN / "fig2_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -622,8 +635,8 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
                        cmap=cmap_, norm=norm, shading="auto",
                        transform=ccrs.PlateCarree())
     sig = p_vals <= alpha
-    ax.scatter(lon2d[sig], lat2d[sig], s=5, color="black",
-               transform=ccrs.PlateCarree(), zorder=5, alpha=0.6)
+    ax.scatter(lon2d[sig], lat2d[sig], s=25, color="black",
+               transform=ccrs.PlateCarree(), zorder=5, alpha=0.7)
     ax.coastlines(linewidth=0.9)
     ax.add_feature(cfeature.BORDERS, linestyle=":", linewidth=0.5)
     ax.add_feature(cfeature.LAND, facecolor="whitesmoke", zorder=0)
@@ -767,8 +780,7 @@ def make_fig3():
     else:
         ax_a.text(0.5, 0.5, "Data not found", transform=ax_a.transAxes,
                   ha="center", va="center")
-    ax_a.text(0.01, 1.04, "A", transform=ax_a.transAxes,
-              font_properties=_PAN_FP, va="bottom", ha="left")
+    _label(ax_a, "a")
 
     # B – precipitation map
     ax_b = fig.add_subplot(gs[0, 1], projection=proj)
@@ -778,8 +790,7 @@ def make_fig3():
     else:
         ax_b.text(0.5, 0.5, "Data not found", transform=ax_b.transAxes,
                   ha="center", va="center")
-    ax_b.text(0.01, 1.04, "B", transform=ax_b.transAxes,
-              font_properties=_PAN_FP, va="bottom", ha="left")
+    _label(ax_b, "b")
 
     # C – Wheat/Rye IRF (points + whiskers)
     ax_c = fig.add_subplot(gs[1, 0])
@@ -788,7 +799,7 @@ def make_fig3():
     ax_c.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
                 ncol=2, frameon=False, fontsize=FS)
     _title(ax_c, "Wheat & rye response")
-    _label(ax_c, "C", x=0.01, y=1.42)
+    _label(ax_c, "c", x=-0.16, y=1.42)
 
     # D – Other grain IRF (points + whiskers)
     ax_d = fig.add_subplot(gs[1, 1])
@@ -797,7 +808,7 @@ def make_fig3():
     ax_d.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
                 ncol=2, frameon=False, fontsize=FS)
     _title(ax_d, "Other grains response")
-    _label(ax_d, "D", x=0.01, y=1.42)
+    _label(ax_d, "d", x=-0.16, y=1.42)
 
     fig.savefig(OUT_MAIN / "fig3_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -810,11 +821,21 @@ def make_fig3():
 def _draw_4A(ax):
     df = pd.read_csv(OUT_DATA / "fig4A_cox_coefs.csv")
     df = df.sort_values("coef")
-    ax.errorbar(df["coef"], range(len(df)),
+    y  = np.arange(len(df))
+    # 95% CI (thin outer whisker)
+    ax.errorbar(df["coef"], y,
                 xerr=[df["coef"] - df["lower"], df["upper"] - df["coef"]],
-                fmt="o", color="firebrick", elinewidth=1.4, capsize=4, ms=6)
+                fmt="none", color="firebrick", elinewidth=2.5, capsize=0, zorder=2)
+    # 90% CI (thick inner whisker)
+    lo90 = df["coef"] - 1.645 * df["se"]
+    hi90 = df["coef"] + 1.645 * df["se"]
+    ax.errorbar(df["coef"], y,
+                xerr=[df["coef"] - lo90, hi90 - df["coef"]],
+                fmt="none", color="firebrick", elinewidth=5.0, capsize=0, zorder=3)
+    # Dot on top
+    ax.scatter(df["coef"], y, color="firebrick", s=120, zorder=4)
     ax.axvline(0, color="black", lw=0.9, linestyle="--")
-    ax.set_yticks(range(len(df)))
+    ax.set_yticks(y)
     ax.set_yticklabels(df["Model"], fontsize=FS + 1)
     ax.set_xlabel("NINO3.4 log hazard ratio", fontsize=LAB + 2)
     _title(ax, "Cox hazard ratios")
@@ -873,13 +894,21 @@ def _draw_4B(ax):
 
 
 def make_fig4():
-    print("  Running ML survival models …")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
-    ml07 = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ml07)
-    methods, means, errors, perm_dfs = ml07.run_survival_ml()
+    _cache4 = OUT_DATA / "_ml_survival_cache.pkl"
+    if _cache4.exists():
+        print("  Loading ML survival models from cache …")
+        with open(_cache4, "rb") as f:
+            methods, means, errors, perm_dfs = pickle.load(f)
+    else:
+        print("  Running ML survival models …")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+        ml07 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ml07)
+        methods, means, errors, perm_dfs = ml07.run_survival_ml()
+        with open(_cache4, "wb") as f:
+            pickle.dump((methods, means, errors, perm_dfs), f)
 
     colors = ["firebrick", "darksalmon", "steelblue", "lightblue"]
     titles = ["Random Survival Forest", "Gradient Boosting Cox",
@@ -895,14 +924,14 @@ def make_fig4():
     _draw_4A(ax_a)
     ax_a.tick_params(axis="both", labelsize=FS + 2)
     ax_a.set_xlabel(ax_a.get_xlabel(), fontsize=LAB + 2)
-    _label(ax_a, "A")
+    _label(ax_a, "a")
 
     ax_b = fig.add_subplot(gs[0, 1])
     _draw_4B(ax_b)
     ax_b.tick_params(axis="both", labelsize=FS + 2)
     ax_b.set_xlabel(ax_b.get_xlabel(), fontsize=LAB + 2)
     ax_b.set_ylabel(ax_b.get_ylabel(), fontsize=LAB + 2)
-    _label(ax_b, "B")
+    _label(ax_b, "b")
 
     # C – concordance bar chart (narrower column)
     ax_c = fig.add_subplot(gs[1, 0])
@@ -916,7 +945,7 @@ def make_fig4():
     ax_c.tick_params(axis="both", labelsize=FS + 2)
     _title(ax_c, "Model concordance (C-index)")
     _polish(ax_c)
-    _label(ax_c, "C")
+    _label(ax_c, "c")
 
     # D – permutation importances 2×2 (wider column)
     gs_d = gridspec.GridSpecFromSubplotSpec(
@@ -933,7 +962,7 @@ def make_fig4():
         ax_sub.tick_params(axis="both", labelsize=FS)
         _polish(ax_sub)
         if i == 0:
-            _label(ax_sub, "D", x=-0.22)
+            _label(ax_sub, "d", x=-0.16)
 
     fig.savefig(OUT_MAIN / "fig4_combined.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -950,14 +979,16 @@ def make_fig5():
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(18, 7))
 
     _draw_irf(ax_a, df_a, "label", "Log grain price",
-              ribbon_group="All regions")
+              ribbon_group="All regions",
+              legend_kw=dict(loc="lower left", ncol=2, fontsize=FS - 2,
+                             columnspacing=0.8, handlelength=1.5))
     _title(ax_a, "Grain price response to ENSO")
-    _label(ax_a, "A")
+    _label(ax_a, "a")
 
     _draw_irf(ax_b, df_b, "species", "Log fish price",
-              ribbon_group="All")
+              ribbon_group=["Cod", "Herring"])
     _title(ax_b, "Fish price response to ENSO")
-    _label(ax_b, "B")
+    _label(ax_b, "b")
 
     fig.tight_layout(w_pad=4)
     fig.savefig(OUT_MAIN / "fig5_combined.pdf", dpi=300, bbox_inches="tight")
