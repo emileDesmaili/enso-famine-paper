@@ -53,7 +53,7 @@ price <- read.csv("../processed data/price_2023_enso.csv") %>%
 ## Nature-style theme
 
 ```{r theme}
-nature_theme <- function(base_size = 11) {
+nature_theme <- function(base_size = 12) {
   theme_classic(base_size = base_size) +
     theme(
       axis.line         = element_line(linewidth = 0.4, colour = "black"),
@@ -79,7 +79,7 @@ nature_theme <- function(base_size = 11) {
 ## Panel a – Time series
 
 ```{r ts-data}
-ts_data <- fishprice %>%
+ts_data <- price %>%
   group_by(Year) %>%
   summarise(
     ENSO = mean(nino34,  na.rm = TRUE),
@@ -102,9 +102,9 @@ cat("ENSO vs JSL:", lab_jsl, "\n")
 ```
 
 ```{r panel-a}
-COL_ENSO <- "#333333"   # near-black
-COL_NAO  <- "#D55E00"   # vermillion
-COL_JSL  <- "#0072B2"   # blue
+COL_ENSO <- "black"   # near-black
+COL_NAO  <- "dodgerblue"   # vermillion
+COL_JSL  <- "tomato"   # blue
 
 df_nao <- ts_data %>%
   dplyr::select(Year, ENSO, NAO) %>%
@@ -120,7 +120,7 @@ ylim_range <- range(c(df_nao$value, df_jsl$value), na.rm = TRUE)
 ylim_pad   <- ylim_range + c(-0.08, 0.10) * diff(ylim_range)
 
 make_ts_panel <- function(df, col_index, col_val, label_text,
-                          x_title = NULL, y_title = "Standardized index (s.d.)") {
+                          x_title = NULL, y_title = "Standardized index") {
   ggplot(df, aes(Year, value, colour = Index)) +
     geom_hline(yintercept = 0, colour = "grey75", linewidth = 0.3, linetype = "dashed") +
     geom_line(linewidth = 0.55) +
@@ -128,7 +128,7 @@ make_ts_panel <- function(df, col_index, col_val, label_text,
       "text",
       x = min(ts_data$Year), y = ylim_pad[2],
       label = label_text,
-      hjust = 0, vjust = 1, size = 2.5, colour = "grey35"
+      hjust = 0, vjust = 1, size = 4, colour = "grey35"
     ) +
     scale_colour_manual(values = col_index, labels = names(col_index)) +
     coord_cartesian(ylim = ylim_pad) +
@@ -157,8 +157,8 @@ panel_a
 ## Panel b – Impulse responses
 
 ```{r irf-run, cache=TRUE}
-COL_TOTAL <- "#0072B2"   # blue  – total effect
-COL_CTRL  <- "#D55E00"   # red   – controlling for other indices
+COL_TOTAL <- "dodgerblue2"   # blue  – total effect
+COL_CTRL  <- "tomato"   # red   – controlling for other indices
 
 run_irfs <- function(data_in, var, controls_full, controls_base,
                      label, dataset_name, panel_id, fe) {
@@ -276,12 +276,7 @@ coef_df <- broom::tidy(m_famine, conf.int = TRUE) %>%
       trimws(),
     Index  = factor(Index, levels = c("ENSO", "NAO", "JSL"))
   )
-
-# Region order: sort by mean ENSO effect
-region_order <- coef_df %>%
-  filter(Index == "ENSO") %>%
-  arrange(estimate) %>%
-  pull(Region)
+region_order <- sort(unique(coef_df$Region))
 
 coef_df <- coef_df %>%
   mutate(Region = factor(Region, levels = region_order))
@@ -301,11 +296,13 @@ panel_c <- ggplot(coef_df, aes(Region, estimate, colour = Index, shape = Index))
   scale_shape_manual(values  = c(ENSO = 16, NAO = 17, JSL = 15)) +
   labs(
     x = NULL,
-    y = "LPM coefficient\n(famine onset probability)"
+    y = "ENSO Effect on Famine Prob."
   ) +
   nature_theme() +
+  #make x axis text bigger
+  
   theme(
-    axis.text.x = element_text(angle = 35, hjust = 1, size = 7),
+    axis.text.x = element_text(angle = 35, hjust = 1, size = 10),
     legend.position = "right"
   )
 
@@ -314,11 +311,11 @@ panel_c
 
 ## Combined figure
 
-```{r combined, fig.width=7.2, fig.height=7}
+```{r combined, fig.width=10, fig.height=7}
 fig <- (panel_a | panel_b) / panel_c +
   plot_layout(heights = c(1.6, 1)) +
   plot_annotation(tag_levels = "a") &
-  theme(plot.tag = element_text(face = "bold", size = 10))
+  theme(plot.tag = element_text(face = "bold", size = 14))
 
 fig
 ```
@@ -332,8 +329,8 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 ggsave(
   file.path(out_dir, "figED_NAO_JSL_ENSO.pdf"),
   plot   = fig,
-  width  = 8,
-  height = 7,
+  width  = 9,
+  height = 8,
   units  = "in",
   device = cairo_pdf
 )
