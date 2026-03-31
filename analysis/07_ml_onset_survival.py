@@ -32,8 +32,8 @@ import matplotlib.image as mpimg
 import seaborn as sns
 
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import GridSearchCV, cross_val_score, KFold
-from sklearn.metrics import accuracy_score
+from sklearn.model_selection import GridSearchCV, KFold, cross_val_score, cross_val_predict
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc
 from sklearn.inspection import permutation_importance
 
 from sksurv.linear_model import CoxPHSurvivalAnalysis, CoxnetSurvivalAnalysis
@@ -50,8 +50,8 @@ OUT_MAIN.mkdir(parents=True, exist_ok=True)
 OUT_APP.mkdir(parents=True, exist_ok=True)
 
 # ── Nature-style global rcParams ───────────────────────────────────────────────
-FONT_SIZE  = 22
-LABEL_SIZE = 24
+FONT_SIZE  = 14
+LABEL_SIZE = 18
 PANEL_SIZE = 42
 
 mpl.rcParams.update({
@@ -142,33 +142,42 @@ def run_onset_classifier():
     ]
 
     param_grid = {
-        "max_depth":         [1, 3, 5, 10],
-        "n_estimators":      [3, 5, 10, 50],
-        "learning_rate":     [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5],
-        "subsample":         [0.7, 0.9],
-        "max_features":      ["sqrt", 0.5],
-        "min_samples_leaf":  [2, 5],
-        "min_samples_split": [5, 10],
+        "max_depth":          [1, 3, 5, 10],
+        "n_estimators":       [3, 5, 10, 50],
+        "learning_rate":      [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5],
+        "subsample":          [0.7, 0.9],
+        "max_features":       ["sqrt", 0.5],
+        "min_samples_leaf":   [2, 5],
+        "min_samples_split":  [5, 10],
     }
 
-    main_result = None   # returned for the "All_features" set
+    from sklearn.metrics import f1_score as _f1
+
+    main_result = None
+    all_models  = []  # (suffix, best, threshold, X, y, oos_f1)
 
     for feat_set, suffix in zip(feature_combinations, save_suffixes):
         X = onset[feat_set]
         y = onset["Famine_start"]
 
         clf  = GradientBoostingClassifier(random_state=42)
-        grid = GridSearchCV(clf, param_grid, cv=10, scoring="f1", n_jobs=-1)
+        grid = GridSearchCV(clf, param_grid, cv=10,
+                            scoring="f1", n_jobs=-1)
         grid.fit(X, y)
-        best = grid.best_estimator_
+        best    = grid.best_estimator_
+        best_thr = 0.5
         print(f"[{suffix}] best params: {grid.best_params_}")
 
-        pred  = best.predict(X)
-        X_cf  = X.copy()
+        # In-sample predictions
+        prob_is = best.predict_proba(X)[:, 1]
+        pred    = (prob_is >= best_thr).astype(int)
+
+        # Counterfactual at same threshold
+        X_cf = X.copy()
         if "nino34" in feat_set:
             mask = (onset["Famine_start"].values == 1) & (onset["nino34"].values > 0)
             X_cf.loc[mask, "nino34"] = 0
-        pred_cf = best.predict(X_cf)
+        pred_cf = (best.predict_proba(X_cf)[:, 1] >= best_thr).astype(int)
 
         df_chron = pd.DataFrame({
             "Region":                onset["Region"].values,
@@ -186,7 +195,8 @@ def run_onset_classifier():
                                       (df_chron["Counterfactual"] == 1)).astype(int)
 
         perm = permutation_importance(best, X, y, n_repeats=50,
-                                      random_state=42, scoring="f1", n_jobs=-1)
+                                      random_state=42, scoring="accuracy",
+                                      n_jobs=-1)
         df_imp = pd.concat([
             pd.DataFrame({"Feature": f, "Importance": perm["importances"][i]})
             for i, f in enumerate(feat_set)
@@ -196,13 +206,21 @@ def run_onset_classifier():
         cv_scores     = cross_val_score(best, X, y, cv=10, scoring="accuracy")
         in_sample_acc = accuracy_score(y, pred)
 
-        # Save individual panel PDFs (for appendix reuse)
+        # OOS F1 via cross_val_predict at default threshold
+        prob_oos_cv  = cross_val_predict(best, X, y, cv=10, method="predict_proba")[:, 1]
+        pred_oos_thr = (prob_oos_cv >= best_thr).astype(int)
+        oos_f1       = _f1(y, pred_oos_thr, zero_division=0)
+        print(f"[{suffix}] OOS F1: {oos_f1:.3f}")
+        all_models.append((suffix, best, best_thr, X, y, oos_f1))
+
         _save_chronology_pdf(df_chron, onset, suffix)
         _save_importances_pdf(df_imp, suffix)
         _save_skill_pdf(in_sample_acc, cv_scores, suffix)
         _save_counts_pdf(df_chron, suffix)
 
         if suffix == "All_features":
+            _save_confusion_roc_pdf(best, X, y, threshold=best_thr,
+                                    cv=10, suffix="All_features")
             main_result = dict(
                 df_chron=df_chron,
                 onset=onset,
@@ -210,6 +228,14 @@ def run_onset_classifier():
                 in_sample_acc=in_sample_acc,
                 cv_scores=cv_scores,
             )
+
+    # Save confusion/metrics figure for model with highest OOS F1
+    best_entry  = max(all_models, key=lambda t: t[5])
+    best_suffix, best_best, best_thr, best_X, best_y, best_f1 = best_entry
+    print(f"Best OOS F1 model: {best_suffix} (F1={best_f1:.3f})")
+    if best_suffix != "All_features":
+        _save_confusion_roc_pdf(best_best, best_X, best_y, threshold=best_thr,
+                                cv=10, suffix=best_suffix)
 
     return main_result
 
@@ -281,11 +307,13 @@ def _save_chronology_pdf(df_chron, onset_df, suffix):
 
 
 def _save_importances_pdf(df_imp, suffix):
-    med_order = (df_imp.groupby("Feature")["Importance"]
-                 .median().sort_values(ascending=False).index)
+    medians   = df_imp.groupby("Feature")["Importance"].median().sort_values(ascending=False)
+    med_order = medians.index
+    norm      = plt.Normalize(medians.min(), medians.max())
+    palette   = {f: plt.cm.Reds(norm(v)) for f, v in medians.items()}
     fig, ax = plt.subplots(figsize=(6, 4))
     sns.boxplot(x="Importance", y="Feature", hue="Feature", data=df_imp,
-                order=med_order, palette="Reds_r", legend=False, ax=ax)
+                order=med_order, palette=palette, legend=False, ax=ax)
     ax.set_xlabel("Permutation Importance")
     ax.set_ylabel("")
     _polish(ax)
@@ -309,6 +337,8 @@ def _save_skill_pdf(in_sample_acc, cv_scores, suffix):
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
                 color="black", fmt="none", capsize=4, elinewidth=1.5)
     ax.set_xlim(0, 1)
+    #remove y axis label that says skill
+    ax.set_ylabel("")
     ax.set_xlabel("Accuracy")
     _polish(ax)
     fig.tight_layout()
@@ -342,6 +372,103 @@ def _save_counts_pdf(df_chron, suffix):
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved counts for {suffix}")
+
+
+def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_features"):
+    """Confusion matrices (top row) + metrics bar chart (bottom) for in-sample and OOS."""
+    from sklearn.metrics import f1_score, precision_score, recall_score, average_precision_score
+
+    # In-sample (threshold-aware)
+    prob_is  = best.predict_proba(X)[:, 1]
+    pred_is  = (prob_is >= threshold).astype(int)
+    cm_is    = confusion_matrix(y, pred_is)
+    fpr_is, tpr_is, _ = roc_curve(y, prob_is)
+    metrics_is = {
+        "Accuracy":  accuracy_score(y, pred_is),
+        "F1":        f1_score(y, pred_is, zero_division=0),
+        "Precision": precision_score(y, pred_is, zero_division=0),
+        "Recall":    recall_score(y, pred_is, zero_division=0),
+        "AUROC":     auc(fpr_is, tpr_is),
+        "AUPRC":     average_precision_score(y, prob_is),
+    }
+
+    # Out-of-sample (stratified CV, threshold-aware)
+    prob_oos = cross_val_predict(best, X, y, cv=cv, method="predict_proba")[:, 1]
+    pred_oos = (prob_oos >= threshold).astype(int)
+    cm_oos   = confusion_matrix(y, pred_oos)
+    fpr_oos, tpr_oos, _ = roc_curve(y, prob_oos)
+    metrics_oos = {
+        "Accuracy":  accuracy_score(y, pred_oos),
+        "F1":        f1_score(y, pred_oos, zero_division=0),
+        "Precision": precision_score(y, pred_oos, zero_division=0),
+        "Recall":    recall_score(y, pred_oos, zero_division=0),
+        "AUROC":     auc(fpr_oos, tpr_oos),
+        "AUPRC":     average_precision_score(y, prob_oos),
+    }
+
+    fig = plt.figure(figsize=(18, 10))
+    gs  = gridspec.GridSpec(2, 2, figure=fig,
+                            height_ratios=[1.4, 1.0],
+                            hspace=0.52, wspace=0.42)
+
+    labels = ["No famine", "Famine"]
+
+    # ── Top row: confusion matrices ──────────────────────────────────────────
+    for col, (cm, title) in enumerate([
+        (cm_is,  "Confusion matrix\n(in-sample)"),
+        (cm_oos, "Confusion matrix\n(OOS, stratified 10-fold CV)"),
+    ]):
+        ax = fig.add_subplot(gs[0, col])
+        cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
+        im = ax.imshow(cm_norm, cmap="Reds", vmin=0, vmax=1)
+        ax.set_xticks([0, 1]); ax.set_xticklabels(labels, fontsize=FONT_SIZE - 3)
+        ax.set_yticks([0, 1]); ax.set_yticklabels(labels, fontsize=FONT_SIZE - 3)
+        ax.set_xlabel("Predicted", fontsize=FONT_SIZE - 1)
+        ax.set_ylabel("Actual",    fontsize=FONT_SIZE - 1)
+        ax.set_title(title, fontsize=FONT_SIZE - 1, pad=8)
+        for i in range(2):
+            for j in range(2):
+                ax.text(j, i, f"{cm[i,j]}\n({cm_norm[i,j]:.0%})",
+                        ha="center", va="center",
+                        color="white" if cm_norm[i, j] > 0.6 else "black",
+                        fontsize=FONT_SIZE - 2)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        letter = "A" if col == 0 else "B"
+        ax.text(-0.18, 1.08, letter, transform=ax.transAxes,
+                fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
+
+    # ── Bottom row: grouped metric bars ─────────────────────────────────────
+    metric_names = list(metrics_is.keys())
+    x      = np.arange(len(metric_names))
+    width  = 0.35
+    colors_bar = {"In-sample": "firebrick", "OOS (10-fold CV)": "steelblue"}
+
+    ax_m = fig.add_subplot(gs[1, :])
+    bars_is  = ax_m.bar(x - width / 2,
+                        [metrics_is[m]  for m in metric_names],
+                        width, label="In-sample",      color="firebrick",  alpha=0.85)
+    bars_oos = ax_m.bar(x + width / 2,
+                        [metrics_oos[m] for m in metric_names],
+                        width, label="OOS (10-fold CV)", color="steelblue", alpha=0.85)
+    for bar in list(bars_is) + list(bars_oos):
+        h = bar.get_height()
+        ax_m.text(bar.get_x() + bar.get_width() / 2, h + 0.01,
+                  f"{h:.2f}", ha="center", va="bottom",
+                  fontsize=FONT_SIZE - 4)
+    ax_m.set_xticks(x)
+    ax_m.set_xticklabels(metric_names, fontsize=FONT_SIZE - 2)
+    ax_m.set_ylim(0, 1.35)
+    ax_m.set_ylabel("Score", fontsize=FONT_SIZE)
+    ax_m.legend(frameon=False, fontsize=FONT_SIZE - 2,
+                loc="upper right", bbox_to_anchor=(1.0, 1.32))
+    _polish(ax_m)
+    ax_m.text(-0.07, 1.06, "C", transform=ax_m.transAxes,
+              fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
+
+    out_path = OUT_APP / f"figA_ML_onset_confusion_roc_{suffix}.pdf"
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved {out_path.name}")
 
 
 # ── Draw individual subpanels into an Axes (for combined figure) ───────────────
@@ -403,10 +530,12 @@ def _draw_C_chronology(ax_chron, ax_nino, df_chron):
 
 
 def _draw_D_importances(ax, df_imp):
-    med_order = (df_imp.groupby("Feature")["Importance"]
-                 .median().sort_values(ascending=False).index)
+    medians   = df_imp.groupby("Feature")["Importance"].median().sort_values(ascending=False)
+    med_order = medians.index
+    norm      = plt.Normalize(medians.min(), medians.max())
+    palette   = {f: plt.cm.Reds(norm(v)) for f, v in medians.items()}
     sns.boxplot(x="Importance", y="Feature", hue="Feature", data=df_imp,
-                order=med_order, palette="Reds_r", legend=False, ax=ax)
+                order=med_order, palette=palette, legend=False, ax=ax)
     ax.set_xlabel("Permutation Importance")
     ax.set_ylabel("")
     _polish(ax)

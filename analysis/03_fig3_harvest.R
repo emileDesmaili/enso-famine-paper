@@ -79,14 +79,12 @@ extract_irf <- function(res, label, n_loc = NA_integer_) {
 
 irf_teleco_loop <- function(df, endog, hor_max,
                              teleco_col     = "teleco_PDSI_10",
-                             controls_full  = c("decade", "PDSI", "temp_summer",
-                                                "temp_winter", "ongoing_wars",
-                                                "Deaths", "precip_summer",
-                                                "precip_winter")) {
+                             controls_full  = c("decade", "JSL", "NAO_cal",
+                                                "ongoing_wars", "Deaths")) {
   conditions <- list(
     "All regions"        = NULL,
-    "Teleconnected"      = paste0(teleco_col, " == 1"),
     "Weakly affected"    = paste0(teleco_col, " == 0"),
+    "Teleconnected"      = paste0(teleco_col, " == 1"),
     "Teleco w. controls" = paste0(teleco_col, " == 1")
   )
   bind_rows(lapply(names(conditions), function(label) {
@@ -608,6 +606,89 @@ plot_se_robust_WR <- function() {
 
 
 ###############################################################################
+# Appendix: CE vs. rest robustness (geographic partition instead of teleconnection)
+###############################################################################
+export_irf_geo_partition <- function(yield_2023) {
+  # Central Europe = Germany, Switzerland, Hungary, Austria
+  # (mirrors the famine-onset "Central Europe" region)
+  ce_countries <- c("Germany", "Switzerland", "Hungary", "Austria")
+
+  run_geo_irf <- function(df, endog, hor_max) {
+    df_ce   <- df |> filter( Country %in% ce_countries)
+    df_rest <- df |> filter(!Country %in% ce_countries)
+    lbl_all  <- "All regions"
+    lbl_ce   <- "Central Europe"
+    lbl_rest <- "Rest of Europe"
+    bind_rows(
+      extract_irf(run_lp(df,      endog, controls = "decade", hor = hor_max), lbl_all),
+      extract_irf(run_lp(df_ce,   endog, controls = "decade", hor = hor_max), lbl_ce),
+      extract_irf(run_lp(df_rest, endog, controls = "decade", hor = hor_max), lbl_rest)
+    )
+  }
+
+  WR   <- yield_2023 |> filter( Grain %in% c("Wheat", "Rye"))
+  noWR <- yield_2023 |> filter(!Grain %in% c("Wheat", "Rye"))
+
+  irf_wr   <- run_geo_irf(WR,   "logyield", 3)
+  irf_nowr <- run_geo_irf(noWR, "logyield", 3)
+
+  make_geo_panel <- function(df, title_lab) {
+    groups  <- unique(df$label)
+    n_g     <- length(groups)
+    offsets <- setNames(seq(-0.12, 0.12, length.out = n_g), groups)
+    df      <- df |> dplyr::mutate(offset = offsets[label])
+    # build color mapping: match labels by prefix
+    clr <- setNames(
+      c("black", "firebrick", "cornflowerblue"),
+      groups[c(
+        grep("All",     groups),
+        grep("Central", groups),
+        grep("Rest",    groups)
+      )]
+    )
+    ggplot(df, aes(x = horizon + offset, y = irf_mean, color = label)) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
+      geom_errorbar(aes(ymin = irf_down, ymax = irf_up), width = 0, linewidth = 0.9) +
+      geom_point(size = 2.5) +
+      scale_x_continuous(breaks = scales::pretty_breaks()) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+      scale_color_manual(values = clr) +
+      labs(x = "Horizon (years)", y = title_lab, color = NULL) +
+      theme_classic(base_size = 16) +
+      theme(panel.grid = element_blank(), legend.position = "bottom")
+  }
+
+  # shared y-axis limits
+  y_range <- range(c(irf_wr$irf_down, irf_wr$irf_up,
+                     irf_nowr$irf_down, irf_nowr$irf_up), na.rm = TRUE)
+
+  # extract legend from a standalone plot before suppressing it in panels
+  legend <- cowplot::get_legend(
+    make_geo_panel(irf_wr, "") + theme(legend.position = "bottom")
+  )
+
+  p_wr   <- make_geo_panel(irf_wr,   "% Harvest response") +
+    coord_cartesian(ylim = y_range) +
+    labs(title = "a  Wheat & Rye") +
+    theme(legend.position = "none", plot.title = element_text(face = "bold"))
+  p_nowr <- make_geo_panel(irf_nowr, "% Harvest response") +
+    coord_cartesian(ylim = y_range) +
+    labs(title = "b  Other grains") +
+    theme(legend.position = "none", axis.title.y = element_blank(),
+          plot.title = element_text(face = "bold"))
+
+  combined <- cowplot::plot_grid(p_wr, p_nowr, nrow = 1, align = "h",
+                                  rel_widths = c(1, 1))
+  final    <- cowplot::plot_grid(combined, legend, ncol = 1,
+                                  rel_heights = c(1, 0.12))
+
+  ggsave(file.path(fig_out, "figA_irf_yield_geopartition.pdf"), final,
+         width = 10, height = 5, device = cairo_pdf)
+  message("Saved figA_irf_yield_geopartition.pdf")
+}
+
+
+###############################################################################
 # Run
 ###############################################################################
 if (!interactive()) {
@@ -627,6 +708,7 @@ if (!interactive()) {
   plot_bootstrap_WR()
   plot_se_robust_WR()
   export_yield_teleco_plots(yield_2023)
+  export_irf_geo_partition(yield_2023)
   message("Fig 3 data exports complete.")
 } else {
   message("Call functions interactively or source this script.")

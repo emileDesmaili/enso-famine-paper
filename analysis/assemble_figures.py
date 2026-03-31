@@ -583,12 +583,16 @@ def make_fig2():
     print("Saved fig2_combined.pdf")
 
 
+_IRF_ORDER = ["All regions", "Weakly affected", "Teleconnected", "Teleco w. controls"]
+
 def _draw_irf_errorbar(ax, df, group_col, y_label,
                        ylim=None,
                        col_map=IRF_COL, ls_map=IRF_LS,
                        add_legend=True):
     """IRF plot using points + whiskers (errorbar) – no ribbon lines."""
-    groups  = df[group_col].unique()
+    all_groups = df[group_col].unique().tolist()
+    groups = [g for g in _IRF_ORDER if g in all_groups] + \
+             [g for g in all_groups if g not in _IRF_ORDER]
     n       = len(groups)
     offsets = np.linspace(-0.15, 0.15, n) if n > 1 else [0]
     has_nloc = "n_loc" in df.columns
@@ -659,6 +663,25 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     cb.ax.tick_params(labelsize=FS - 3)
     cb.set_label("Pearson r", fontsize=FS - 2)
     ax.set_title(title, fontsize=FS, fontweight="bold", loc="left")
+
+    # Central Europe region outline – country union from Switzerland/Germany to Ukraine + Balkans
+    import cartopy.io.shapereader as shpreader
+    import geopandas as gpd
+    from shapely.ops import unary_union
+    _CE_COUNTRIES = {
+        "Switzerland", "Germany", "Austria", "Czechia", "Poland",
+        "Slovakia", "Hungary", "Romania", "Slovenia", "Croatia",
+        "Bosnia and Herz.", "Serbia", "Montenegro", "North Macedonia",
+        "Bulgaria", "Kosovo", "Liechtenstein",
+    }
+    _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
+                                       name="admin_0_countries")
+    _gdf = gpd.read_file(_ne_path)
+    _ce_geom = unary_union(_gdf[_gdf["NAME"].isin(_CE_COUNTRIES)]["geometry"].values)
+    ax.add_geometries(
+        [_ce_geom], crs=ccrs.PlateCarree(),
+        facecolor="none", edgecolor="red", linewidth=4.0, zorder=10
+    )
 
 
 def _compute_teleconnections():
@@ -978,14 +1001,14 @@ def make_fig5():
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(18, 7))
 
-    _draw_irf(ax_a, df_a, "label", "Log grain price",
+    _draw_irf(ax_a, df_a, "label", "Price variation",
               ribbon_group="All regions",
               legend_kw=dict(loc="lower left", ncol=2, fontsize=FS - 2,
                              columnspacing=0.8, handlelength=1.5))
     _title(ax_a, "Grain price response to ENSO")
     _label(ax_a, "a")
 
-    _draw_irf(ax_b, df_b, "species", "Log fish price",
+    _draw_irf(ax_b, df_b, "species", "Price variation",
               ribbon_group=["Cod", "Herring"])
     _title(ax_b, "Fish price response to ENSO")
     _label(ax_b, "b")
