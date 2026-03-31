@@ -88,7 +88,7 @@ cat("Rows after fix:",  nrow(fishprice_fixed),
 cat("(vs", nrow(fishprice_raw), "original rows from",
     n_distinct(fishprice_raw$LocationSpecies), "units)\n")
 
-cat("Rows in balanced panel:", nrow(fishprice_balanced),
+cat("Rows after balancing:", nrow(fishprice_fixed),
     "(vs", nrow(fishprice_raw), "original)\n")
 ```
 
@@ -102,7 +102,7 @@ run_fixest <- function(df, label) {
     data         = df,
     outcome      = "logprice",
     main_var     = "nino34",
-    controls     = "1",
+    controls     = NULL,
     horizon      = HOR,
     fe           = "LocationSpecies + Decade",
     panel_id     = c("LocationSpecies", "Year"),
@@ -119,7 +119,7 @@ run_fixest_positional <- function(df, label) {
   map_dfr(0:HOR, function(h) {
     df_h <- df %>%
       group_by(LocationSpecies) %>%
-      mutate(.lhs = lead(logprice, h) - lag(logprice, 1)) %>%
+      mutate(.lhs = dplyr::lead(logprice, h) - dplyr::lag(logprice, 1)) %>%
       ungroup() %>%
       filter(!is.na(.lhs), !is.na(nino34))
 
@@ -372,7 +372,7 @@ irf_optimal <- lp_panel(
   data         = fishprice_optimal,
   outcome      = "logprice",
   main_var     = "nino34",
-  controls     = "1",
+  controls     = NULL,
   horizon      = HOR,
   fe           = "LocationSpecies + Decade",
   panel_id     = c("LocationSpecies", "Year"),
@@ -407,7 +407,7 @@ loo_full <- map_dfr(locations_full, function(loc) {
     data         = fishprice_raw %>% filter(Location != loc),
     outcome      = "logprice",
     main_var     = "nino34",
-    controls     = "1",
+    controls     = NULL,
     horizon      = HOR,
     fe           = "LocationSpecies + Decade",
     panel_id     = c("LocationSpecies", "Year"),
@@ -441,7 +441,7 @@ loo_optimal <- map_dfr(locations_optimal, function(loc) {
     data         = fishprice_optimal %>% filter(Location != loc),
     outcome      = "logprice",
     main_var     = "nino34",
-    controls     = "1",
+    controls     = NULL,
     horizon      = HOR,
     fe           = "LocationSpecies + Decade",
     panel_id     = c("LocationSpecies", "Year"),
@@ -471,10 +471,12 @@ ggplot(loo_optimal, aes(horizon, irf_mean, colour = left_out, fill = left_out, g
 
 ```{r species-inter, cache=TRUE, fig.width=7, fig.height=4}
 # ── Species-interacted IRF: full sample & no-max-gap-10 ───────────────────────
-# fishprice_nogap: drop series with max_gap >= 10 (already computed above as
-# the series used in irf_fixest_fixed, before the NA-row balancing step)
+# fishprice_nogap: drop series with max_gap > 10 (slightly looser than the
+# gap-fix threshold, so that Munich Cod+Herring — both with max_gap <= 10 —
+# are retained, ensuring at least one dual-species location for identification)
+nogap_series <- gap_summary %>% filter(max_gap <= 10) %>% pull(LocationSpecies)
 fishprice_nogap <- fishprice_raw %>%
-  filter(LocationSpecies %in% keep_series)
+  filter(LocationSpecies %in% nogap_series)
 
 run_inter <- function(df, label) {
   lp_panel_inter(
@@ -491,11 +493,11 @@ run_inter <- function(df, label) {
 }
 
 irf_inter_full  <- run_inter(fishprice_raw,   "Full sample")
-irf_inter_nogap <- run_inter(fishprice_nogap, "No max-gap ≥ 10 yrs")
+irf_inter_nogap <- run_inter(fishprice_nogap, "No max-gap > 10 yrs")
 
 irf_inter <- bind_rows(irf_inter_full, irf_inter_nogap) %>%
   mutate(
-    dataset  = factor(dataset, levels = c("Full sample", "No max-gap ≥ 10 yrs")),
+    dataset  = factor(dataset, levels = c("Full sample", "No max-gap > 10 yrs")),
     category = factor(category, levels = c("Cod", "Herring"))
   )
 
@@ -547,11 +549,11 @@ run_loo_inter <- function(df, locations, label) {
 }
 
 loo_inter_full  <- run_loo_inter(fishprice_raw,   unique(fishprice_raw$Location),   "Full sample")
-loo_inter_nogap <- run_loo_inter(fishprice_nogap, unique(fishprice_nogap$Location), "No max-gap ≥ 10 yrs")
+loo_inter_nogap <- run_loo_inter(fishprice_nogap, unique(fishprice_nogap$Location), "No max-gap > 10 yrs")
 
 loo_inter <- bind_rows(loo_inter_full, loo_inter_nogap) %>%
   mutate(
-    dataset  = factor(dataset, levels = c("Full sample", "No max-gap ≥ 10 yrs")),
+    dataset  = factor(dataset, levels = c("Full sample", "No max-gap > 10 yrs")),
     category = factor(category, levels = c("Cod", "Herring"))
   )
 
@@ -559,8 +561,8 @@ ggplot(loo_inter, aes(horizon, irf_mean, colour = left_out, group = left_out)) +
   geom_line(linewidth = 0.5, alpha = 0.7) +
   # Baseline interacted IRF (all locations)
   geom_line(
-    data = irf_inter %>% rename(left_out = category),
-    aes(horizon, irf_mean, group = left_out),
+    data = irf_inter,
+    aes(horizon, irf_mean, group = category),
     colour = "black", linewidth = 1.0, linetype = "dashed", inherit.aes = FALSE
   ) +
   geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.3, linetype = "dotted") +

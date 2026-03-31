@@ -60,12 +60,60 @@ tab_out    <- file.path(SCRIPT_DIR, "output", "tables")
 for (d in c(out_data, fig_out, tab_out)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
 # ── data ──────────────────────────────────────────────────────────────────────
+
+# Build famine_survival.csv from raw panel data (mirrors ENSO_Famines.Rmd)
+build_famine_survival <- function(data) {
+  famine_periods <- data |>
+    group_by(Region) |>
+    mutate(famine_id = cumsum(Famine_start == 1)) |>
+    filter(Famine > 0) |>
+    ungroup()
+
+  famine_summary <- famine_periods |>
+    group_by(Region, famine_id) |>
+    arrange(Year, .by_group = TRUE) |>
+    summarise(
+      start_year               = min(Year),
+      duration                 = first(Famine_dur2),
+      avg_PDSI                 = mean(PDSI,                 na.rm = TRUE),
+      avg_PDSI_europe          = mean(PDSI_europe,          na.rm = TRUE),
+      avg_temp_summer          = mean(temp_summer,          na.rm = TRUE),
+      avg_temp_winter          = mean(temp_winter,          na.rm = TRUE),
+      avg_precip_summer        = mean(precip_summer,        na.rm = TRUE),
+      avg_precip_winter        = mean(precip_winter,        na.rm = TRUE),
+      avg_temp_summer_europe   = mean(temp_summer_europe,   na.rm = TRUE),
+      avg_temp_winter_europe   = mean(temp_winter_europe,   na.rm = TRUE),
+      avg_precip_summer_europe = mean(precip_summer_europe, na.rm = TRUE),
+      avg_precip_winter_europe = mean(precip_winter_europe, na.rm = TRUE),
+      avg_ongoing_wars         = mean(ongoing_wars,         na.rm = TRUE),
+      avg_Deaths               = mean(Deaths,               na.rm = TRUE),
+      avg_Death_ratio          = mean(Death_ratio,          na.rm = TRUE),
+      avg_JSL                  = mean(JSL,                  na.rm = TRUE),
+      avg_NAO_cal              = mean(NAO_cal,              na.rm = TRUE),
+      n_first                  = pmax(floor(first(Famine_dur2) / 2), 1),
+      max_nino_first_n         = ifelse(pmax(floor(first(Famine_dur2) / 2), 1) > 0,
+                                        max(head(nino34, pmax(floor(first(Famine_dur2) / 2), 1)), na.rm = TRUE),
+                                        NA_real_),
+      avg_nino_first_n         = ifelse(pmax(floor(first(Famine_dur2) / 2), 1) > 0,
+                                        mean(head(nino34, pmax(floor(first(Famine_dur2) / 2), 1)), na.rm = TRUE),
+                                        NA_real_),
+      avg_nino34               = mean(nino34,               na.rm = TRUE),
+      avg_2y_nino              = mean(nino34[1:2],          na.rm = TRUE),
+      max_2y_nino              = max(nino34[1:2],           na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  write.csv(famine_summary, file.path(DATA_PROC, "famine_survival.csv"), row.names = FALSE)
+  message("Built and saved famine_survival.csv (", nrow(famine_summary), " episodes)")
+  famine_summary
+}
+
 load_data <- function() {
   data <- read.csv(file.path(DATA_PROC, "famine_region_data.csv")) |>
     mutate(Decade = floor(Year / 10) * 10) |>
     arrange(Region, Year)
 
-  famine_summary <- read.csv(file.path(DATA_PROC, "famine_survival.csv"))
+  famine_summary <- build_famine_survival(data)
 
   dt <- data |> as.data.table()
   dt[, famine_id := rleid(Famine) * Famine]
@@ -95,13 +143,13 @@ fit_cox_models <- function(famine_long) {
     "Frailty"                   = coxph(Surv(start, stop, event) ~ nino34 + frailty(Region),
                                         data = famine_long),
     "Controls + Clustered S.E." = coxph(
-      Surv(start, stop, event) ~ nino34 + ongoing_wars + temp_winter +
-        precip_winter + PDSI + temp_summer + log(1 + Deaths) + cluster(famine_id),
+      Surv(start, stop, event) ~ nino34 + JSL + NAO_cal + ongoing_wars +
+        log(1 + Deaths) + cluster(famine_id),
       data = famine_long, robust = TRUE
     ),
     "Controls + Strata"         = coxph(
-      Surv(start, stop, event) ~ nino34 + ongoing_wars + temp_winter +
-        precip_winter + PDSI + temp_summer + log(1 + Deaths) + strata(Region),
+      Surv(start, stop, event) ~ nino34 + JSL + NAO_cal + ongoing_wars +
+        log(1 + Deaths) + strata(Region),
       data = famine_long
     ),
     "Interaction"               = coxph(
@@ -304,25 +352,90 @@ save_survival_tables <- function(famine_long, famine_summary) {
     "(4)" = coxph(Surv(start, stop, event) ~ nino34 + frailty(Region),
                   data = famine_long),
     "(5)" = coxph(
-      Surv(start, stop, event) ~ nino34 + ongoing_wars + temp_winter +
-        precip_winter + PDSI + temp_summer + log(1 + Deaths) + cluster(famine_id),
+      Surv(start, stop, event) ~ nino34 + JSL + NAO_cal + ongoing_wars +
+        log(1 + Deaths) + cluster(famine_id),
       data = famine_long, robust = TRUE
     ),
     "(6)" = coxph(
-      Surv(start, stop, event) ~ nino34 + ongoing_wars + temp_winter +
-        precip_winter + PDSI + temp_summer + log(1 + Deaths) + strata(Region),
+      Surv(start, stop, event) ~ nino34 + JSL + NAO_cal + ongoing_wars +
+        log(1 + Deaths) + strata(Region),
       data = famine_long
+    )
+  )
+
+  # Robust VCOVs via sandwich (only for models that use cluster())
+  cluster_var <- famine_long$famine_id
+  robust_vcovs <- lapply(cox_models, function(model) {
+    if (!inherits(model, "coxph")) return(NULL)
+    has_cluster <- any(grepl("cluster", deparse(model$call)))
+    if (has_cluster) {
+      tryCatch(sandwich::vcovCL(model, cluster = cluster_var), error = function(e) NULL)
+    } else {
+      NULL
+    }
+  })
+
+  # Extract AIC, BIC, Concordance, PH test p-value per model
+  extract_info <- function(model) {
+    if (!inherits(model, "coxph")) return(list(AIC = NA, BIC = NA, Concordance = NA, PH_p = NA))
+    aic <- AIC(model)
+    bic <- BIC(model)
+    c_index <- tryCatch(summary(model)$concordance[1], error = function(e) NA)
+    ph_p <- NA
+    if (!any(grepl("frailty", deparse(model$call)))) {
+      test <- try(cox.zph(model), silent = TRUE)
+      if (!inherits(test, "try-error") && "nino34" %in% rownames(test$table)) {
+        ph_p <- round(test$table["nino34", "p"], 3)
+      }
+    }
+    list(AIC = round(aic, 1), BIC = round(bic, 1),
+         Concordance = round(c_index, 3), PH_p = ph_p)
+  }
+  info_list      <- lapply(cox_models, extract_info)
+  aic_values     <- sapply(info_list, `[[`, "AIC")
+  bic_values     <- sapply(info_list, `[[`, "BIC")
+  cindex_values  <- sapply(info_list, `[[`, "Concordance")
+  ph_tests       <- sapply(info_list, function(x) ifelse(is.na(x$PH_p), "-", sprintf("%.3f", x$PH_p)))
+
+  detect_in_call <- function(models, pattern) {
+    sapply(models, function(model) {
+      if (!inherits(model, "coxph")) return("-")
+      ifelse(any(grepl(pattern, deparse(model$call))), "Yes", "No")
+    })
+  }
+  clustered_SEs     <- detect_in_call(cox_models, "cluster")
+  strata_region     <- detect_in_call(cox_models, "strata\\(.*Region.*\\)")
+  controls_included <- detect_in_call(cox_models, "wars|pop")
+  frailty_included  <- detect_in_call(cox_models, "frailty")
+
+  extra_rows <- tibble::tibble(
+    term = c("Clustered SEs", "Strata by Region", "Controls", "Random Effects",
+             "Proportional Hazards p", "Concordance Index", "AIC", "BIC"),
+    !!!setNames(
+      purrr::transpose(list(
+        as.character(clustered_SEs),
+        as.character(strata_region),
+        as.character(controls_included),
+        as.character(frailty_included),
+        as.character(ph_tests),
+        sprintf("%.3f", cindex_values),
+        sprintf("%.1f", aic_values),
+        sprintf("%.1f", bic_values)
+      )),
+      names(cox_models)
     )
   )
 
   modelsummary(
     cox_models,
-    title    = "\\label{tab:dynsurvENSO}Log Hazard Ratio of Nino 3.4 on Famine Duration",
-    escape   = FALSE,
+    title     = "\\label{tab:dynsurvENSO}Log Hazard Ratio of Nino 3.4 on Famine Duration, Time-varying Cox Model",
+    escape    = FALSE,
     coef_omit = "^(?!.*nino34).*",
+    vcov      = robust_vcovs,
     gof_omit  = ".*",
-    stars    = c(`*`=0.1, `**`=0.05, `***`=0.01),
-    output   = file.path(tab_out, "dyn_survival_models_reg.tex")
+    add_rows  = extra_rows,
+    stars     = c(`*` = 0.1, `**` = 0.05, `***` = 0.01),
+    output    = file.path(tab_out, "dyn_survival_models_reg.tex")
   )
   message("Saved dyn_survival_models_reg.tex")
 
@@ -351,19 +464,19 @@ save_survival_tables <- function(famine_long, famine_summary) {
                    data = famine_summary, cluster = ~Region)
     ols2  <- feols(duration ~ get(nino_var) + avg_ongoing_wars +
                      avg_temp_summer + avg_temp_winter + avg_PDSI +
-                     avg_precip_winter | Region,
+                     avg_precip_winter + avg_JSL + avg_NAO_cal | Region,
                    data = famine_summary, cluster = ~Region)
     pois1 <- fepois(duration ~ get(nino_var) | Region,
                     data = famine_summary, cluster = ~Region)
     pois2 <- fepois(duration ~ get(nino_var) + avg_ongoing_wars +
                       avg_temp_summer + avg_temp_winter + avg_PDSI +
-                      avg_precip_winter | Region,
+                      avg_precip_winter + avg_JSL + avg_NAO_cal | Region,
                     data = famine_summary, cluster = ~Region)
     nb1   <- fenegbin(duration ~ get(nino_var) | Region,
                       data = famine_summary, cluster = ~Region)
     nb2   <- fenegbin(duration ~ get(nino_var) + avg_ongoing_wars +
                         avg_temp_summer + avg_temp_winter + avg_PDSI +
-                        avg_precip_winter | Region,
+                        avg_precip_winter + avg_JSL + avg_NAO_cal | Region,
                       data = famine_summary, cluster = ~Region)
 
     fname <- if (nino_var == "avg_nino34") "famine_duration_fe_avgnino.tex"

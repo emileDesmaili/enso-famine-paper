@@ -595,6 +595,33 @@ ggsave("../figures/plots/nonlinearity_onset.pdf", device = cairo_pdf)
 ```
 
 
+# TYW
+
+```{r}
+m_onset <- feols(
+  Famine_start ~ nino34:Region  | Region + Decade,
+  data = famines,
+  vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+m_tyw <- feols(
+  Famine_start ~ nino34:Region  | Region + Decade,
+  data = famines %>% filter(Year >=1648),
+  vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+etable(m_onset, m_tyw, vcov = DK ~ Year,
+       keep_raw = "nino34:RegionCentral",
+       tex = TRUE,
+       file = "../figures/plots/TYW_CE_nino34_coef.tex")
+```
+
+```{r}
+coef(m_onset)
+```
+
 
 
 

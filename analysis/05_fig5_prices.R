@@ -112,8 +112,7 @@ export_fig5A <- function(data) {
     "Teleconnected"   = list(filter = quote(teleco_PDSI_10 == 1), ctrl = "Decade"),
     "Weakly affected" = list(filter = quote(teleco_PDSI_10 == 0), ctrl = "Decade"),
     "All w. controls" = list(filter = NULL,
-                              ctrl = c("Decade","PDSI","temp_summer","temp_winter",
-                                       "precip_summer","precip_winter",
+                              ctrl = c("Decade","JSL","NAO_cal",
                                        "ongoing_wars","Deaths"))
   )
 
@@ -340,11 +339,9 @@ export_FSV_irf <- function() {
 
   ctrl_dict <- list(
     "Base"               = "Decade",
-    "Climate"            = c("Decade","PDSI","temp_summer","temp_winter",
-                             "precip_summer","precip_winter"),
     "Conflict"           = c("Decade","ongoing_wars","Deaths"),
-    "Climate + Conflict" = c("Decade","PDSI","temp_summer","temp_winter",
-                             "precip_summer","precip_winter","ongoing_wars","Deaths")
+    "Climate"            = c("Decade","JSL","NAO_cal"),
+    "Climate + Conflict" = c("Decade","JSL","NAO_cal","ongoing_wars","Deaths")
   )
 
   bind_rows(lapply(names(ctrl_dict), function(nm) {

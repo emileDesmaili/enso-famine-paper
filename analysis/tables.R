@@ -58,7 +58,7 @@ save_price_tables <- function() {
       `ongoing wars` = ongoing_wars
     ) %>%
     datasummary(
-      formula = Price + NINO3.4 + PDSI +
+      formula = Price + NINO3.4 + PDSI + JSL + NAO_cal +
         `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` +
         `ongoing wars` + Deaths ~ Mean + SD + Min + Max + N,
       output  = file.path(OUT_TAB, "summary_price.tex"),
@@ -148,7 +148,7 @@ save_yield_tables <- function() {
       `ongoing wars` = ongoing_wars
     ) %>%
     datasummary(
-      formula = logyield + NINO3.4 + PDSI +
+      formula = logyield + NINO3.4 + PDSI + JSL + NAO_cal +
         `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` +
         `ongoing wars` + Deaths ~ Mean + SD + Min + Max + N,
       output = file.path(OUT_TAB, "summary_yield_TI.tex"),
@@ -167,7 +167,7 @@ save_yield_tables <- function() {
       `ongoing wars` = ongoing_wars
     ) %>%
     datasummary(
-      formula = logyield + NINO3.4 + PDSI +
+      formula = logyield + NINO3.4 + PDSI + JSL + NAO_cal +
         `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` +
         `ongoing wars` + Deaths ~ Mean + SD + Min + Max + N,
       output = file.path(OUT_TAB, "summary_yield_YR.tex"),
@@ -260,7 +260,7 @@ save_fishprice_tables <- function() {
       `ongoing wars` = ongoing_wars
     ) %>%
     datasummary(
-      formula = Price + NINO3.4 + PDSI +
+      formula = Price + NINO3.4 + PDSI + JSL + NAO_cal +
         `temp AMJJ` + `temp NDJF` + `precip AMJJ` + `precip NDJF` +
         `ongoing wars` + Deaths ~ Mean + SD + Min + Max + N,
       output = file.path(OUT_TAB, "summary_fishprice.tex"),

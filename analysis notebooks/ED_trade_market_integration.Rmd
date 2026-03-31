@@ -1,0 +1,153 @@
+---
+title: "Trade and Market Integration – Extended Data"
+output: html_notebook
+editor_options:
+ chunk_output_type: inline
+---
+
+Does ENSO raise wheat prices through trade disruption, or only through local
+climate? We merge the Sound Toll trade dataset with ENSO and climate variables
+and estimate the effect of ENSO on wheat prices, progressively controlling for
+trade volume and local climate.
+
+```{r setup}
+suppressPackageStartupMessages(suppressWarnings({
+  library(dplyr)
+  library(haven)
+  library(fixest)
+  library(ggplot2)
+}))
+setFixest_notes(FALSE)
+```
+
+# Data
+
+```{r load}
+# Sound Toll dataset: port × year panel
+# lnwheatindex     : log wheat price index at destination port
+# lnpassage_nr     : log number of ship passages (trade volume)
+# lntax_total_gold : log total tax paid in gold (trade value)
+# growseasontemp_n5  : local growing-season temperature (5-yr smooth)
+# ngrowseasontemp_n5 : negative growing-season temp (cold shocks)
+# DestPortCorr_num : port city
+# year
+
+trade <- read_dta('../processed data/trade_sound_toll_dataset.dta') %>%
+  filter(year >= 1500, year <= 1800) %>%
+  mutate(port = as.character(DestPortCorr_num),
+         Decade = floor(year / 10) * 10)
+
+# Merge ENSO from famine panel (year-level)
+famines <- read.csv('../processed data/famine_region_data.csv')
+
+enso_yr <- famines %>%
+  group_by(Year) %>%
+  summarise(nino34      = mean(nino34,      na.rm = TRUE),
+            PDSI_europe = mean(PDSI_europe, na.rm = TRUE),
+            .groups = "drop")
+
+trade <- trade %>%
+  left_join(enso_yr, by = c("year" = "Year")) %>%
+  filter(!is.na(nino34))
+
+cat("Observations:", nrow(trade), "\n")
+cat("Ports:", n_distinct(trade$port), "\n")
+cat("Years:", min(trade$year), "-", max(trade$year), "\n")
+```
+
+# ENSO effect on wheat prices, controlling for trade
+
+Columns add controls progressively:
+1. ENSO only (port FE)
+2. + local growing-season temperature
+3. + European PDSI
+4. + trade volume (log passages)
+5. + trade value (log tax)
+6. All controls + decade FE
+
+```{r models}
+m1 <- feols(lnwheatindex ~ l(nino34,0:5) | port + Decade,
+            data = trade, cluster = ~port, panel.id = ~port + year)
+
+m2 <- feols(lnwheatindex ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 | port,
+            data = trade, cluster = ~port)
+
+m3 <- feols(lnwheatindex ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe | port,
+            data = trade, cluster = ~port)
+
+m4 <- feols(lnwheatindex ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe + lnpassage_nr | port,
+            data = trade, cluster = ~port)
+
+m5 <- feols(lnwheatindex ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe + lntax_total_gold | port,
+            data = trade, cluster = ~port)
+
+m6 <- feols(lnwheatindex ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe + lnpassage_nr | port + Decade,
+            data = trade, cluster = ~port)
+
+dict <- c(
+  nino34               = "Nino3.4",
+  growseasontemp_n5    = "Grow. season temp.",
+  ngrowseasontemp_n5   = "Neg. grow. season temp.",
+  PDSI_europe          = "PDSI (Europe)",
+  lnpassage_nr         = "Ln(trade passages)",
+  lntax_total_gold     = "Ln(trade tax)"
+)
+
+etable(m1, m2, m3, m4, m5, m6,
+       dict       = dict)
+```
+
+# ENSO effect on trade volume
+
+Does ENSO reduce trade passages? (First stage of the trade-channel mechanism)
+
+```{r enso-trade}
+t1 <- feols(lnpassage_nr ~ nino34 | port,
+            data = trade, cluster = ~port)
+
+t2 <- feols(lnpassage_nr ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 | port,
+            data = trade, cluster = ~port)
+
+t3 <- feols(lnpassage_nr ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe | port,
+            data = trade, cluster = ~port)
+
+t4 <- feols(lnpassage_nr ~ nino34 + growseasontemp_n5 + ngrowseasontemp_n5 +
+              PDSI_europe | port + Decade,
+            data = trade, cluster = ~port)
+
+etable(t1, t2, t3, t4,
+       dict       = dict)
+```
+
+# Time series plot
+
+```{r plot, fig.width=9, fig.height=4}
+ts <- trade %>%
+  group_by(year) %>%
+  summarise(
+    nino34       = mean(nino34,       na.rm = TRUE),
+    lnwheatindex = mean(lnwheatindex, na.rm = TRUE),
+    lnpassage_nr = mean(lnpassage_nr, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(across(c(nino34, lnwheatindex, lnpassage_nr), scale))
+
+ggplot(ts, aes(x = year)) +
+  geom_col(aes(y = nino34, fill = nino34 > 0), alpha = 0.45, width = 1) +
+  geom_line(aes(y = lnwheatindex, color = "Wheat price"), linewidth = 1) +
+  geom_line(aes(y = lnpassage_nr, color = "Trade passages"), linewidth = 1, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "firebrick", "FALSE" = "cornflowerblue"), guide = "none") +
+  scale_color_manual(values = c("Wheat price" = "black", "Trade passages" = "steelblue")) +
+  labs(x = "Year", y = "Standardised value", color = NULL,
+       title = "ENSO, Sound Toll trade passages, and wheat prices (1591–1800)",
+       subtitle = "Bars = ENSO anomaly (red = El Niño); lines = standardised means across ports") +
+  theme_classic(base_size = 13) +
+  theme(legend.position = "top")
+
+ggsave("../figures/plots/ENSO_trade_wheat_ts.pdf", device = cairo_pdf, width = 9, height = 4)
+```
