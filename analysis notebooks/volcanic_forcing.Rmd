@@ -335,9 +335,9 @@ panel_a
 panel_b <- ggplot(irf_grain,
                   aes(horizon, irf_mean,
                       colour   = spec, fill = spec, linetype = spec)) +
-  geom_hline(yintercept = 0, colour = "grey65", linewidth = 0.3, linetype = "dashed") +
+  geom_hline(yintercept = 0, colour = "grey65", linewidth = 1.2, linetype = "dashed") +
   geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.15, colour = NA) +
-  geom_line(linewidth = 1.0) +
+  geom_line(linewidth = 1.2) +
   scale_x_continuous(breaks = seq(0, 10, 2), expand = c(0.02, 0)) +
   scale_colour_manual(values   = c(COL_BASE, COL_VOLC)) +
   scale_fill_manual(values     = c(COL_BASE, COL_VOLC)) +
