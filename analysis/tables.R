@@ -82,6 +82,7 @@ save_price_tables <- function() {
                 data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
 
   dict_price <- c(
+    "l(nino34, 0)"    = "NINO3.4 T",
     "nino34"          = "NINO3.4 T",
     "l(nino34, 1)"    = "NINO3.4 T-1",
     "l(nino34, 2)"    = "NINO3.4 T-2",
@@ -205,6 +206,7 @@ save_yield_tables <- function() {
   )
 
   dict_yield <- c(
+    "l(nino34, 0)"        = "NINO3.4 T",
     "nino34"              = "NINO3.4 T",
     "l(nino34, 1)"        = "NINO3.4 T-1",
     "l(nino34, 2)"        = "NINO3.4 T-2",
@@ -288,6 +290,7 @@ save_fishprice_tables <- function() {
                 vcov = DK ~ Year)
 
   dict_fish <- c(
+    "l(nino34, 0)"  = "NINO3.4 T",
     "nino34"        = "NINO3.4 T",
     "l(nino34, 1)"  = "NINO3.4 T-1",
     "l(nino34, 2)"  = "NINO3.4 T-2",
@@ -368,9 +371,9 @@ save_granger_table <- function() {
       "Fish Price (all cities)",  "Fish Price (all cities)"
     ),
     Direction = c(
-      "Grain Price \\to NINO3.4",  "NINO3.4 \\to Grain Price",
-      "Harvest \\to NINO3.4",      "NINO3.4 \\to Harvest",
-      "Fish Price \\to NINO3.4",   "NINO3.4 \\to Fish Price"
+      "Grain Price $\\to$ NINO3.4",  "NINO3.4 $\\to$ Grain Price",
+      "Harvest $\\to$ NINO3.4",      "NINO3.4 $\\to$ Harvest",
+      "Fish Price $\\to$ NINO3.4",   "NINO3.4 $\\to$ Fish Price"
     ),
     p_value = c(
       granger_p(avg_nino34 ~ avg_price, ljunqgvist_avg,       order = 10),
