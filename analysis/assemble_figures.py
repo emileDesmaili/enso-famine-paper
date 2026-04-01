@@ -1009,7 +1009,7 @@ def make_fig5():
     _label(ax_a, "a")
 
     _draw_irf(ax_b, df_b, "species", "Price variation",
-              ribbon_group=["Cod", "Herring"])
+              ribbon_group="All")
     _title(ax_b, "Fish price response to ENSO")
     _label(ax_b, "b")
 

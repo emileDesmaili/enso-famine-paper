@@ -181,7 +181,7 @@ run_lp_se_robust_price <- function(df, endog, entity,
 
     v_conley <- tryCatch(
       vcov(mod, vcov = vcov_conley(lat = lat_col, lon = lon_col,
-                                   cutoff = 500, distance = "spherical")),
+                                   cutoff = 300, distance = "triangular")),
       error = function(e) NULL
     )
     v_nw   <- vcov(mod, vcov = NW ~ Year)
@@ -200,10 +200,12 @@ run_lp_se_robust_price <- function(df, endog, entity,
       if (is.null(V)) return(NULL)
       b  <- coef(mod)["nino34"]
       se <- sqrt(V["nino34", "nino34"])
-      data.frame(se_type  = nm, horizon = h,
-                 irf_mean = b,
-                 irf_up   = b + 1.96 * se,
-                 irf_down = b - 1.96 * se)
+      data.frame(se_type   = nm, horizon = h,
+                 irf_mean  = b,
+                 irf_up95  = b + 1.960 * se,
+                 irf_down95 = b - 1.960 * se,
+                 irf_up90  = b + 1.645 * se,
+                 irf_down90 = b - 1.645 * se)
     }))
   }))
 }
@@ -215,7 +217,7 @@ export_se_robust_price <- function(data) {
 }
 
 export_se_robust_fish <- function(fishprice) {
-  run_lp_se_robust_price(fishprice |> filter(Species == "Cod"),
+  run_lp_se_robust_price(fishprice,
                          "logprice", "LocationSpecies", hor = 10) |>
     write.csv(file.path(out_data, "figA_irf_fishprice_serobust.csv"), row.names = FALSE)
   message("Exported figA_irf_fishprice_serobust.csv")
@@ -375,9 +377,8 @@ export_nino_check_price <- function(data) {
 ###############################################################################
 export_nino_check_fish <- function(fishprice) {
   nino_dict <- c("Nino1.2"="nino12","Nino3"="nino3","Nino3.4"="nino34","Nino4"="nino4")
-  fishprice_cod <- fishprice |> filter(Species == "Cod")
   bind_rows(lapply(names(nino_dict), function(nm) {
-    run_lp_price(fishprice_cod, "logprice", shock = nino_dict[[nm]],
+    run_lp_price(fishprice, "logprice", shock = nino_dict[[nm]],
                  controls = "i(Decade)", entity = "LocationSpecies", hor = 10) |>
       transmute(index = nm, horizon, irf_mean, irf_up, irf_down)
   })) |>
@@ -425,13 +426,12 @@ export_20y_prices <- function(data) {
 # Appendix: LOO subsampling (fish prices – Cod only)
 ###############################################################################
 export_loo_fish <- function(fishprice) {
-  fishprice_cod <- fishprice |> filter(Species == "Cod")
-  locations <- unique(fishprice_cod$LocationSpecies)
+  locations <- unique(fishprice$LocationSpecies)
   combos    <- combn(locations, length(locations) - 1, simplify = FALSE)
 
   bind_rows(lapply(seq_along(combos), function(i) {
     left_out <- setdiff(locations, combos[[i]])
-    run_lp_price(fishprice_cod |> filter(LocationSpecies %in% combos[[i]]),
+    run_lp_price(fishprice |> filter(LocationSpecies %in% combos[[i]]),
                  "logprice", controls = "i(Decade)",
                  entity = "LocationSpecies", hor = 10) |>
       transmute(subsample = paste("No", left_out), horizon, irf_mean, irf_up, irf_down)
@@ -445,12 +445,11 @@ export_loo_fish <- function(fishprice) {
 # Appendix: 20-year block LOO (fish prices – Cod only)
 ###############################################################################
 export_20y_fish <- function(fishprice) {
-  fishprice_cod <- fishprice |> filter(Species == "Cod")
-  years        <- sort(unique(fishprice_cod$Year))
+  years        <- sort(unique(fishprice$Year))
   block_starts <- seq(min(years), max(years) - 20, by = 20)
 
   bind_rows(lapply(block_starts, function(s) {
-    run_lp_price(fishprice_cod |> filter(!Year %in% s:(s + 19)),
+    run_lp_price(fishprice |> filter(!Year %in% s:(s + 19)),
                  "logprice", controls = "i(Decade)",
                  entity = "LocationSpecies", hor = 10) |>
       transmute(block = paste0("Drop ", s, "-", s + 19), horizon, irf_mean, irf_up, irf_down)
@@ -532,7 +531,7 @@ export_bootstrap <- function(data, fishprice, n_iter = 500) {
   }
 
   run_boot(data,                             "logprice", "Location",       "figA_irf_price_bootstrap")
-  run_boot(fishprice |> filter(Species == "Cod"), "logprice", "LocationSpecies", "figA_irf_fishprice_bootstrap")
+  run_boot(fishprice, "logprice", "LocationSpecies", "figA_irf_fishprice_bootstrap")
 }
 
 
@@ -711,7 +710,8 @@ plot_loo_price <- function() {
   df <- read.csv(path)
   p <- ggplot(df, aes(x = horizon, y = irf_mean)) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    geom_ribbon(aes(ymin = irf_down, ymax = irf_up), fill = "cornflowerblue", alpha = 0.25) +
+    geom_ribbon(aes(ymin = irf_down95, ymax = irf_up95), fill = "cornflowerblue", alpha = 0.20) +
+    geom_ribbon(aes(ymin = irf_down90, ymax = irf_up90), fill = "cornflowerblue", alpha = 0.25) +
     geom_line(color = "black", linewidth = 1.1) +
     facet_wrap(~ se_type, ncol = 4) +
     scale_x_continuous(breaks = scales::pretty_breaks()) +

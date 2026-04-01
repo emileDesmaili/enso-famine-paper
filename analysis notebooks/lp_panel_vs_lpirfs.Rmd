@@ -23,8 +23,7 @@ match exactly.
 
 ```{r setup, message=FALSE, warning=FALSE}
 suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
+  library(tidyverse)
   library(ggplot2)
   library(fixest)
   library(lpirfs)
@@ -44,7 +43,7 @@ fishprice_raw <- read.csv("../processed data/fishprice_enso.csv") %>%
 # Identify series with any year gaps
 gap_summary <- fishprice_raw %>%
   group_by(LocationSpecies) %>%
-  mutate(gap = Year - lag(Year)) %>%
+  mutate(gap = Year - dplyr::lag(Year)) %>%
   summarise(
     max_gap  = max(gap, na.rm = TRUE),
     n_gaps   = sum(gap > 1, na.rm = TRUE),
@@ -59,10 +58,10 @@ print(gap_summary %>% filter(n_gaps > 0))
 # Series with a gap >= 10 years are dropped: the within-entity mean is
 # meaningless across such a break, and at horizon h fixest's f() would
 # also cross the gap for some t. Threshold = max horizon (10 years).
-keep_series <- gap_summary %>% filter(max_gap < 10) %>% pull(LocationSpecies)
-drop_series <- gap_summary %>% filter(max_gap >= 10) %>% pull(LocationSpecies)
+keep_series <- gap_summary %>% filter(max_gap < 20) %>% pull(LocationSpecies)
+drop_series <- gap_summary %>% filter(max_gap >= 20) %>% pull(LocationSpecies)
 
-cat("\nDropped (max_gap >= 10 yrs):", length(drop_series), "\n")
+cat("\nDropped (max_gap >= 15 yrs):", length(drop_series), "\n")
 print(drop_series)
 cat("Kept:", length(keep_series), "\n")
 ```
@@ -240,6 +239,12 @@ ggplot(all_irf, aes(horizon, irf_mean, colour = estimator, linetype = estimator)
   ) +
   guides(colour = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)))
 ```
+
+```{r}
+
+```
+
+
 
 ---
 
@@ -474,7 +479,7 @@ ggplot(loo_optimal, aes(horizon, irf_mean, colour = left_out, fill = left_out, g
 # fishprice_nogap: drop series with max_gap > 10 (slightly looser than the
 # gap-fix threshold, so that Munich Cod+Herring — both with max_gap <= 10 —
 # are retained, ensuring at least one dual-species location for identification)
-nogap_series <- gap_summary %>% filter(max_gap <= 10) %>% pull(LocationSpecies)
+nogap_series <- gap_summary %>% filter(max_gap <= 15) %>% pull(LocationSpecies)
 fishprice_nogap <- fishprice_raw %>%
   filter(LocationSpecies %in% nogap_series)
 

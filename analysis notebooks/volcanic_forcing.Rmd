@@ -1,0 +1,566 @@
+---
+title: "Volcanic Forcing – ENSO Correlation and Price/Famine Analyses"
+output: html_notebook
+editor_options:
+  chunk_output_type: inline
+---
+
+Does volcanic forcing confound ENSO effects on grain prices, fish prices, and
+famine onset? This notebook:
+
+1. Loads and cleans the volcanic forcing dataset
+2. Merges it with grain price, fish price, and famine onset data
+3. Checks correlation between ENSO and volcanic forcing
+4. Re-runs LP-IRF analyses controlling for volcanic forcing
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(patchwork)
+  library(fixest)
+  library(readxl)
+  library(purrr)
+  library(broom)
+  library(scales)
+})
+
+source("../emileRegs.R")
+setFixest_notes(FALSE)
+
+# ── Colour palette ────────────────────────────────────────────────────────────
+COL_ENSO  <- "dodgerblue"       # ENSO series
+COL_GVF   <- "tomato"           # GVF series
+COL_GR    <- "#0F3460"          # deep blue
+COL_ANT   <- "#E2AD1A"          # amber
+COL_BASE  <- "dodgerblue"       # baseline IRF
+COL_VOLC  <- "tomato"           # volcanic-controlled IRF
+
+nature_theme <- function(base_size = 13) {
+  theme_classic(base_size = base_size) +
+    theme(
+      axis.line         = element_line(linewidth = 0.5, colour = "black"),
+      axis.ticks        = element_line(linewidth = 0.4, colour = "black"),
+      axis.ticks.length = unit(3, "pt"),
+      axis.text         = element_text(size = base_size - 1, colour = "black",
+                                       face = "bold"),
+      axis.title        = element_text(size = base_size, colour = "black",
+                                       face = "bold"),
+      legend.position   = "bottom",
+      legend.key.size   = unit(10, "pt"),
+      legend.text       = element_text(size = base_size - 1, face = "bold"),
+      legend.title      = element_blank(),
+      legend.margin     = margin(0, 0, 0, 0),
+      legend.spacing.x  = unit(5, "pt"),
+      strip.background  = element_blank(),
+      strip.text        = element_text(face = "bold", size = base_size),
+      plot.tag          = element_text(face = "bold", size = base_size + 4,
+                                       colour = "black"),
+      plot.tag.position = "topleft",
+      plot.margin       = margin(6, 8, 6, 8, "pt"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank()
+    )
+}
+```
+
+## 1. Load volcanic forcing data
+
+```{r volcanic-load}
+raw <- read_excel("../data/volcanic_data.xlsx",
+                  sheet = "1 - Volcanic_Forcing",
+                  col_names = FALSE)
+
+# Row 1 = header level 1, row 2 = header level 2, rows 3+ = data
+# Columns (1-indexed in R):
+#   1  Year
+#   2  Source (1=tropical, 2=NH, 3=SH)
+#   3  Greenland sulfate [kg km-2]
+#   4  Greenland uncertainty
+#   5  Antarctica sulfate [kg km-2]
+#   6  Antarctica uncertainty
+#   7  Global Volcanic Forcing GVF [W m-2]
+#   8  GVF uncertainty
+
+volc_raw <- raw[-c(1, 2), 1:8]
+colnames(volc_raw) <- c(
+  "Year", "Source",
+  "greenland_sulfate", "greenland_unc",
+  "antarctica_sulfate", "antarctica_unc",
+  "GVF", "GVF_unc"
+)
+
+volc_raw <- volc_raw %>%
+  mutate(across(everything(), as.numeric)) %>%
+  filter(!is.na(Year), Year >= 1500, Year <= 1900) %>%
+  arrange(Year)
+
+cat("Volcanic events in sample (1500-1900):", nrow(volc_raw), "\n")
+print(volc_raw)
+```
+
+## 2. Build annual volcanic forcing series
+
+```{r volcanic-annual}
+year_grid <- tibble(Year = 1500:1900)
+
+volc <- year_grid %>%
+  left_join(volc_raw, by = "Year") %>%
+  mutate(
+    GVF                = replace_na(GVF, 0),
+    greenland_sulfate  = replace_na(greenland_sulfate, 0),
+    antarctica_sulfate = replace_na(antarctica_sulfate, 0),
+    eruption           = as.integer(GVF != 0)
+  ) %>%
+  dplyr::select(Year, GVF, greenland_sulfate, antarctica_sulfate, eruption) %>%
+  mutate(
+    GVF_l1 = lag(GVF, 1),
+    GVF_l2 = lag(GVF, 2),
+    GVF_l3 = lag(GVF, 3)
+  )
+
+summary(volc[, c("GVF", "greenland_sulfate", "antarctica_sulfate")])
+```
+
+## 3. Load main datasets and merge
+
+```{r data-load}
+price <- read.csv("../processed data/price_2023_enso.csv") %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  drop_na() %>% distinct() %>% arrange(Location, Year)
+
+fishprice <- read.csv("../processed data/fishprice_enso.csv") %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  arrange(LocationSpecies, Year)
+
+famines <- read.csv("../processed data/famine_region_data.csv") %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  arrange(Region, Year)
+
+price     <- left_join(price,     volc, by = "Year")
+fishprice <- left_join(fishprice, volc, by = "Year")
+famines   <- left_join(famines,   volc, by = "Year")
+
+cat("Grain price obs after merge:", nrow(price), "\n")
+cat("Fish price obs after merge: ", nrow(fishprice), "\n")
+cat("Famine obs after merge:     ", nrow(famines), "\n")
+```
+
+## 4. ENSO × Volcanic forcing correlation
+
+```{r enso-volc-corr}
+ts <- price %>%
+  group_by(Year) %>%
+  summarise(
+    ENSO               = mean(nino34,             na.rm = TRUE),
+    GVF                = mean(GVF,                na.rm = TRUE),
+    greenland_sulfate  = mean(greenland_sulfate,  na.rm = TRUE),
+    antarctica_sulfate = mean(antarctica_sulfate, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(across(c(ENSO, GVF, greenland_sulfate, antarctica_sulfate),
+                ~ as.numeric(scale(.x))))
+
+fmt_p <- function(p) if (p < 0.001) "p < 0.001" else sprintf("p = %.3f", p)
+
+cor_gvf  <- cor.test(ts$ENSO, ts$GVF)
+cor_gr   <- cor.test(ts$ENSO, ts$greenland_sulfate)
+cor_ant  <- cor.test(ts$ENSO, ts$antarctica_sulfate)
+
+cat(sprintf("ENSO vs GVF:                r = %.3f, %s\n",
+            cor_gvf$estimate,  fmt_p(cor_gvf$p.value)))
+cat(sprintf("ENSO vs Greenland sulfate:  r = %.3f, %s\n",
+            cor_gr$estimate,   fmt_p(cor_gr$p.value)))
+cat(sprintf("ENSO vs Antarctica sulfate: r = %.3f, %s\n",
+            cor_ant$estimate,  fmt_p(cor_ant$p.value)))
+```
+
+## 5. Grain price IRFs
+
+```{r grain-irf, cache=TRUE}
+run_lp <- function(df, controls, fe, panel_id) {
+  lp_panel(
+    data         = df,
+    outcome      = "logprice",
+    main_var     = "nino34",
+    controls     = controls,
+    horizon      = 10,
+    fe           = fe,
+    panel_id     = panel_id,
+    vcov_formula = DK ~ Year
+  )
+}
+
+irf_grain_base <- run_lp(
+  price,
+  controls = "i(Decade)",
+  fe       = "Location",
+  panel_id = c("Location", "Year")
+) %>% mutate(spec = "Baseline")
+
+irf_grain_volc <- run_lp(
+  price %>% drop_na(GVF),
+  controls = "i(Decade) + GVF + greenland_sulfate + antarctica_sulfate ",
+  fe       = "Location",
+  panel_id = c("Location", "Year")
+) %>% mutate(spec = "Controlling for V.F.")
+
+irf_grain <- bind_rows(irf_grain_base, irf_grain_volc) %>%
+  mutate(spec = factor(spec, levels = c("Baseline", "Controlling for V.F.")))
+```
+
+
+
+## 7. Famine onset – region interaction model
+
+```{r famine-model}
+m_base <- feols(
+  Famine_start ~ nino34:i(Region) | Region + Decade,
+  data     = famines,
+  panel.id = c("Region", "Year"),
+  vcov     = DK ~ Year
+)
+
+m_volc <- feols(
+  Famine_start ~ nino34:i(Region) + GVF + greenland_sulfate + antarctica_sulfate | Region + Decade,
+  data     = famines %>% drop_na(GVF),
+  panel.id = c("Region", "Year"),
+  vcov     = DK ~ Year
+)
+
+etable(m_base, m_volc,
+       dict    = c("nino34" = "NINO3.4", "GVF" = "GVF T",
+                   "GVF_l1" = "GVF T-1", "GVF_l2" = "GVF T-2",
+                   "GVF_l3" = "GVF T-3"),
+       fitstat = c("n", "r2"))
+```
+
+```{r famine-coefs}
+# Extract region coefficients with 90 and 95 % CIs
+extract_region_coefs <- function(mod, spec_label) {
+  b   <- coef(mod)
+  V   <- vcov(mod)
+  nms <- names(b)
+  idx <- grep("nino34", nms)
+
+  tibble(
+    term     = nms[idx],
+    estimate = b[idx],
+    se       = sqrt(diag(V)[idx]),
+    spec     = spec_label
+  ) %>%
+    mutate(
+      lo95 = estimate - 1.960 * se,
+      hi95 = estimate + 1.960 * se,
+      lo90 = estimate - 1.645 * se,
+      hi90 = estimate + 1.645 * se,
+      Region = term %>%
+        gsub("nino34:Region::", "", .) %>%
+        gsub("nino34:i\\(Region\\)::", "", .) %>%
+        trimws()
+    )
+}
+
+coef_base <- extract_region_coefs(m_base, "Baseline")
+coef_volc <- extract_region_coefs(m_volc, "Controlling for V.F.")
+coef_df   <- bind_rows(coef_base, coef_volc) %>%
+  mutate(spec = factor(spec, levels = c("Baseline", "Controlling for V.F.")))
+
+print(coef_df[, c("Region", "spec", "estimate", "lo95", "hi95")])
+```
+
+## 8. Figure panels
+
+### Panel a – Time series with correlation annotations
+
+```{r panel-a, fig.width=8, fig.height=4.5}
+# Build annotation labels
+make_cor_label <- function(cor_obj, name) {
+  sprintf("%s:  r = %.2f  (%s)", name,
+          cor_obj$estimate, fmt_p(cor_obj$p.value))
+}
+
+ann_labels <- paste(
+  make_cor_label(cor_gvf,  "GVF"),
+  make_cor_label(cor_gr,   "Greenland"),
+  make_cor_label(cor_ant,  "Antarctica"),
+  sep = "\n"
+)
+
+ts_long <- ts %>%
+  pivot_longer(-Year, names_to = "Index", values_to = "value") %>%
+  mutate(Index = factor(Index,
+    levels = c("ENSO", "GVF", "greenland_sulfate", "antarctica_sulfate"),
+    labels = c("ENSO (NINO3.4)", "Global V.F. (GVF)",
+               "Greenland sulfate", "Antarctica sulfate")))
+
+panel_a <- ggplot(ts_long, aes(Year, value, colour = Index, linewidth = Index)) +
+  geom_hline(yintercept = 0, colour = "grey80", linewidth = 0.3, linetype = "dashed") +
+  geom_line(alpha = 0.88) +
+  annotate("label",
+           x = 1895, y = max(ts_long$value, na.rm = TRUE) * 0.97,
+           label     = ann_labels,
+           hjust     = 1, vjust = 1,
+           size      = 4, fontface = "bold",
+           fill      = "white", colour = "grey20",
+           label.size = 0.3, label.padding = unit(4, "pt")) +
+  scale_colour_manual(
+    values = c("ENSO (NINO3.4)"     = COL_ENSO,
+               "Global V.F. (GVF)"  = COL_GVF,
+               "Greenland sulfate"  = COL_GR,
+               "Antarctica sulfate" = COL_ANT)
+  ) +
+  scale_linewidth_manual(
+    values = c("ENSO (NINO3.4)"     = 0.9,
+               "Global V.F. (GVF)"  = 0.7,
+               "Greenland sulfate"  = 0.7,
+               "Antarctica sulfate" = 0.7)
+  ) +
+  guides(linewidth = "none",
+         colour = guide_legend(override.aes = list(linewidth = 1.4))) +
+  scale_x_continuous(breaks = seq(1500, 1900, 50)) +
+  labs(x = "Year", y = "Standardised value",
+       title = "ENSO and volcanic forcing") +
+  nature_theme()
+
+panel_a
+```
+
+### Panel b – Grain price IRF overlay
+
+```{r panel-b, fig.width=5, fig.height=4.5}
+panel_b <- ggplot(irf_grain,
+                  aes(horizon, irf_mean,
+                      colour   = spec, fill = spec, linetype = spec)) +
+  geom_hline(yintercept = 0, colour = "grey65", linewidth = 0.3, linetype = "dashed") +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 1.0) +
+  scale_x_continuous(breaks = seq(0, 10, 2), expand = c(0.02, 0)) +
+  scale_colour_manual(values   = c(COL_BASE, COL_VOLC)) +
+  scale_fill_manual(values     = c(COL_BASE, COL_VOLC)) +
+  scale_linetype_manual(values = c("solid", "longdash")) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  guides(colour   = guide_legend(override.aes = list(linewidth = 1.4)),
+         fill     = guide_legend(override.aes = list(alpha = 0.2)),
+         linetype = guide_legend(override.aes = list(linewidth = 1.4))) +
+  labs(x = "Horizon (years)", y = "% Grain price response",
+       title = "ENSO effect on grain prices") +
+  nature_theme()
+
+panel_b
+```
+
+### Panel c – Famine onset by region (Central Europe highlighted)
+
+```{r panel-c, fig.width=5.5, fig.height=4.5}
+# Dodge position for two specs
+pd <- position_dodge(width = 0.55)
+
+panel_c <- ggplot(coef_df,
+                  aes(x = Region, y = estimate,
+                      colour = spec, shape = spec)) +
+  geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.35,
+             linetype = "dashed") +
+  # 95 % CI (thin whisker)
+  geom_errorbar(aes(ymin = lo95, ymax = hi95),
+                width = 0.0, linewidth = 0.55,
+                position = pd) +
+  # 90 % CI (thick whisker)
+  geom_errorbar(aes(ymin = lo90, ymax = hi90),
+                width = 0.0, linewidth = 1.5,
+                position = pd) +
+  geom_point(size = 2.2, position = pd) +
+  # Highlight Central Europe with a shaded band
+  annotate("rect",
+           xmin = 0.5, xmax = 1.5,
+           ymin = -Inf, ymax = Inf,
+           fill = "#E94560", alpha = 0.07) +
+  scale_colour_manual(values = c(COL_BASE, COL_VOLC)) +
+  scale_shape_manual(values  = c(16, 17)) +
+  guides(colour = guide_legend(override.aes = list(size = 2.5)),
+         shape  = guide_legend(override.aes = list(size = 2.5))) +
+  labs(x = NULL, y = "ENSO effect on famine onset prob.",
+       title = "Famine onset by region") +
+  nature_theme() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1, size = 10))
+
+panel_c
+```
+
+## 9. Combined figure 1 – ENSO robustness (a / b | c)
+
+```{r combined, fig.width=12, fig.height=9}
+fig <- panel_a / (panel_b | panel_c) +
+  plot_layout(heights = c(1, 1.4)) +
+  plot_annotation(tag_levels = "a") &
+  theme(plot.tag   = element_text(face = "bold", size = 20, colour = "black"),
+        plot.title = element_text(face = "bold", size = 15))
+
+fig
+```
+
+## 10. Volcanic forcing as the shock – IRF on grain prices
+
+```{r volc-irf, cache=TRUE}
+# IRF of GVF on grain prices controlling for ENSO
+irf_gvf_grain <- lp_panel(
+  data         = price,
+  outcome      = "logprice",
+  main_var     = "GVF",
+  controls     = "i(Decade) + nino34",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(forcing = "Global V.F. (GVF)")
+
+# Also run for Greenland and Antarctica separately
+irf_gvf_gr <- lp_panel(
+  data         = price,
+  outcome      = "logprice",
+  main_var     = "greenland_sulfate",
+  controls     = "i(Decade) + nino34",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(forcing = "Greenland sulfate")
+
+irf_gvf_ant <- lp_panel(
+  data         = price,
+  outcome      = "logprice",
+  main_var     = "antarctica_sulfate",
+  controls     = "i(Decade) + nino34",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(forcing = "Antarctica sulfate")
+
+irf_volc_all <- bind_rows(irf_gvf_grain, irf_gvf_gr, irf_gvf_ant) %>%
+  mutate(forcing = factor(forcing,
+    levels = c("Global V.F. (GVF)", "Greenland sulfate", "Antarctica sulfate")))
+```
+
+```{r volc-irf-plot, fig.width=7, fig.height=4.5}
+COL_VOLC3 <- c("Global V.F. (GVF)"  = "tomato",
+               "Greenland sulfate"  = COL_GR,
+               "Antarctica sulfate" = COL_ANT)
+
+panel_d <- ggplot(irf_volc_all,
+                  aes(horizon, irf_mean,
+                      colour = forcing, fill = forcing)) +
+  geom_hline(yintercept = 0, colour = "grey65", linewidth = 0.3, linetype = "dashed") +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 1.0) +
+  scale_x_continuous(breaks = seq(0, 10, 2), expand = c(0.02, 0)) +
+  scale_colour_manual(values = COL_VOLC3) +
+  scale_fill_manual(values   = COL_VOLC3) +
+  scale_y_continuous(labels  = percent_format(accuracy = 0.1)) +
+  guides(colour = guide_legend(override.aes = list(linewidth = 1.4)),
+         fill   = guide_legend(override.aes = list(alpha = 0.2))) +
+  labs(x = "Horizon (years)", y = "% Grain price response",
+       title = "V.F. effect on grain prices (controlling for ENSO)") +
+  nature_theme()
+
+panel_d
+```
+
+## 11. Volcanic forcing – famine onset by region (controlling for ENSO)
+
+
+
+```{r volc-famine-coefs}
+m_volc_region <- feols(
+  Famine_start ~ GVF:i(Region) + nino34 | Region + Decade,
+  data     = famines,
+  panel.id = c("Region", "Year"),
+  vcov     = DK ~ Year
+)
+
+# Extract GVF × Region coefficients
+b_vr   <- coef(m_volc_region)
+V_vr   <- vcov(m_volc_region)
+idx_vr <- grep("GVF", names(b_vr))
+
+coef_vr <- tibble(
+  term     = names(b_vr)[idx_vr],
+  estimate = b_vr[idx_vr],
+  se       = sqrt(diag(V_vr)[idx_vr])
+) %>%
+  mutate(
+    lo95 = estimate - 1.960 * se,
+    hi95 = estimate + 1.960 * se,
+    lo90 = estimate - 1.645 * se,
+    hi90 = estimate + 1.645 * se,
+    Region = term %>%
+      gsub("GVF:i\\(Region\\)::", "", .) %>%
+      gsub("GVF:Region::",        "", .) %>%
+      trimws()
+  )
+
+print(coef_vr[, c("Region", "estimate", "lo95", "hi95")])
+```
+
+```{r volc-famine-plot, fig.width=5.5, fig.height=4.5}
+panel_e <- ggplot(coef_vr, aes(x = Region, y = estimate)) +
+  geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.35,
+             linetype = "dashed") +
+  geom_errorbar(aes(ymin = lo95, ymax = hi95),
+                width = 0.0, linewidth = 0.55, colour = "tomato") +
+  geom_errorbar(aes(ymin = lo90, ymax = hi90),
+                width = 0.0, linewidth = 1.5, colour = "tomato") +
+  geom_point(size = 2.4, colour = "tomato", shape = 17) +
+  annotate("rect",
+           xmin = 0.5, xmax = 1.5,
+           ymin = -Inf, ymax = Inf,
+           fill = "tomato", alpha = 0.07) +
+  labs(x = NULL, y = "V.F. effect on famine onset prob.",
+       title = "V.F. effect by region (controlling for ENSO)") +
+  nature_theme() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1, size = 10))
+
+panel_e
+```
+
+## 12. Combined figure 2 – Volcanic forcing as shock (d | e)
+
+```{r combined2, fig.width=12, fig.height=5}
+fig2 <- (panel_d | panel_e) +
+  plot_layout(widths = c(1.4, 1.2)) +
+  plot_annotation(tag_levels = list(c("d", "e"))) &
+  theme(plot.tag   = element_text(face = "bold", size = 20, colour = "black"),
+        plot.title = element_text(face = "bold", size = 13))
+
+fig2
+```
+
+## Save
+
+```{r save}
+out_dir <- "../analysis/output/figures/extended data"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+ggsave(
+  file.path(out_dir, "figED_volcanic.pdf"),
+  plot   = fig,
+  width  = 12,
+  height = 9,
+  units  = "in",
+  device = cairo_pdf
+)
+
+ggsave(
+  file.path(out_dir, "figED_volcanic2.pdf"),
+  plot   = fig2,
+  width  = 12,
+  height = 5,
+  units  = "in",
+  device = cairo_pdf
+)
+
+message("Saved → figED_volcanic.pdf and figED_volcanic2.pdf")
+```
