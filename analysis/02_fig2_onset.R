@@ -22,7 +22,6 @@ suppressPackageStartupMessages({
   library(broom)
   library(purrr)
   library(modelsummary)
-  library(margins)
 })
 
 setFixest_notes(FALSE)
@@ -133,80 +132,13 @@ save_onset_table <- function(data) {
     data = data, panel.id = c("Region", "Year"), family = "logit"
   )
 
-  # Delta-method AMEs for logit models.
-  #
-  # margins::margins() does not support feglm objects (no `terms` attribute).
-  # We implement the delta method directly:
-  #   AME_k  = beta_k * mean_i[ p_i * (1 - p_i) ]          (for pooled coef)
-  #   AME_k  = beta_k * mean_{i in R}[ p_i * (1 - p_i) ]   (for interacted)
-  #
-  # Var(AME_k) via delta method (vectorised over K coefficients):
-  #   grad_k = e_k * mean(phi_S) + beta_k * (X_S' * diag(phi_S*(1-2p_S))) / n_S
-  #   Var(AME_k) = grad_k' V grad_k
-  apply_ame_delta <- function(mod, data_df) {
-    beta  <- coef(mod)
-    V     <- vcov(mod)
-    p_hat <- fitted(mod)          # predicted probabilities
-    phi   <- p_hat * (1 - p_hat)  # logistic density f(x'b)
-    K     <- length(beta)
-    nms   <- names(beta)
-
-    # Build model matrix from the linear formula (no FE columns needed for
-    # the gradient — fixest demeans internally, so the coef table already
-    # refers to the within-transformed X; for the delta-method gradient we
-    # only need the column of X corresponding to each coefficient)
-    fml_lin <- formula(mod, type = "linear")
-    X_full  <- model.matrix(fml_lin, data = data_df)
-    # Retain only the columns that correspond to named coefficients
-    # (drop intercept if present, keep interaction columns)
-    common  <- intersect(nms, colnames(X_full))
-    X       <- matrix(0, nrow = nrow(X_full), ncol = K,
-                      dimnames = list(NULL, nms))
-    X[, common] <- X_full[, common, drop = FALSE]
-
-    ame   <- numeric(K);  names(ame) <- nms
-    se_dm <- numeric(K);  names(se_dm) <- nms
-
-    for (k in seq_len(K)) {
-      nm <- nms[k]
-      # For region-interacted coefficients, average phi only over that region
-      region_match <- regmatches(nm, regexpr("(?<=:Region).+$", nm, perl = TRUE))
-      S <- if (length(region_match) == 1) which(data_df$Region == region_match) else seq_along(p_hat)
-      n_S        <- length(S)
-      mean_phi_S <- mean(phi[S])
-      ame[k]     <- beta[k] * mean_phi_S
-
-      # Gradient of AME_k w.r.t. all beta (K-vector), vectorised
-      # d(AME_k)/d(beta_j) = I(j==k)*mean_phi_S
-      #                     + beta_k * (1/n_S) * sum_S[ phi_i*(1-2p_i)*x_{ij} ]
-      dphi_deta_S <- phi[S] * (1 - 2 * p_hat[S])          # n_S-vector
-      dAME_dbeta  <- beta[k] * (colSums(dphi_deta_S * X[S, , drop = FALSE]) / n_S)
-      dAME_dbeta[k] <- dAME_dbeta[k] + mean_phi_S         # add I(j==k) term
-
-      se_dm[k] <- sqrt(pmax(0, as.numeric(t(dAME_dbeta) %*% V %*% dAME_dbeta)))
-    }
-
-    # Splice back into coeftable
-    mod$coefficients <- ame
-    mod$coeftable[, 1] <- ame
-    mod$coeftable[, 2] <- se_dm
-    mod$coeftable[, 3] <- ame / se_dm
-    mod$coeftable[, 4] <- 2 * pnorm(-abs(ame / se_dm))
-    mod
-  }
-
-  message("Delta-method AMEs for logit col 4 (margins)...")
-  est4_ame <- apply_ame_delta(est4, data)
-  message("Delta-method AMEs for logit col 6 (margins)...")
-  est6_ame <- apply_ame_delta(est6, data)
-
   ed_out <- file.path(SCRIPT_DIR, "output", "figures", "extended data")
   dir.create(ed_out, recursive = TRUE, showWarnings = FALSE)
 
   for (out_path in c(file.path(tab_out, "famine_starts_reg.tex"),
                      file.path(ed_out,  "famine_starts_reg.tex"))) {
     etable(
-      est0, est2, est3, est4_ame, est5, est6_ame,
+      est0, est2, est3, est4, est5, est6,
       # interaction models: keep only Central Europe; pooled models: keep nino34
       keep_raw     = c("nino34:RegionCentral Europe", "^nino34$"),
       drop.section = "fixef",
@@ -218,11 +150,11 @@ save_onset_table <- function(data) {
         "Decade FE"       = c("No",  "Yes", "Yes", "Yes", "Yes", "Yes"),
         "Region FE"       = c("No",  "Yes", "Yes", "Yes", "Yes", "Yes"),
         "Controls"        = c("No",  "No",  "Yes", "Yes", "Yes", "Yes"),
-        "Model"           = c("LPM", "LPM", "LPM", "Logit$^{\\dagger}$",
-                              "LPM", "Logit$^{\\dagger}$"),
-        "Standard Errors" = c("DK",  "DK",  "DK",  "Delta", "DK",  "Delta")
+        "Model"           = c("LPM", "LPM", "LPM", "Logit",
+                              "LPM", "Logit"),
+        "Standard Errors" = c("DK",  "DK",  "DK",  "-", "DK",  "-")
       ),
-      notes  = "Logit columns report average marginal effects; standard errors via delta method. DK = Driscoll--Kraay.",
+      notes  = "Logit columns report log-odds coefficients. DK = Driscoll--Kraay.",
       file    = out_path,
       label   = "tab:famine_starts",
       title   = "\\textbf{Extended Data Table 1:} Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on the Probability of a Famine Start",
