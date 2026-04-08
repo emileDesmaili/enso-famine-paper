@@ -198,9 +198,18 @@ shocks <- tribble(
     controls_base = "1"
   )
 
+## Scale predictors to 1 SD so coefficients represent a 1-SD shock
+sd_vars <- c("nino34", "NAO_cal", "JSL")
+
+fishprice_sc <- fishprice %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
+
+price_sc <- price %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
+
 datasets <- list(
-  list(data = fishprice, name = "Fish prices",   panel_id = c("LocationSpecies", "Year"), fe = "LocationSpecies + Decade"),
-  list(data = price,     name = "Grain prices",  panel_id = c("Location", "Year"),        fe = "Location + Decade")
+  list(data = fishprice_sc, name = "Fish prices",   panel_id = c("LocationSpecies", "Year"), fe = "LocationSpecies + Decade"),
+  list(data = price_sc,     name = "Grain prices",  panel_id = c("Location", "Year"),        fe = "Location + Decade")
 )
 
 irf_all <- map_dfr(datasets, function(d) {
@@ -245,7 +254,8 @@ panel_b
 ```{r famine-data}
 famines <- read.csv("../processed data/famine_region_data.csv") %>%
   mutate(Decade = floor(Year / 10) * 10) %>%
-  arrange(Region, Year)
+  arrange(Region, Year) %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
 ```
 
 ```{r panel-c, fig.width=6, fig.height=3}

@@ -360,7 +360,7 @@ def make_fig1():
 # FIG 2 – Famine onset (A+B from R CSVs, C+D+E from ML)
 # ══════════════════════════════════════════════════════════════════════════════
 def _draw_2A(ax):
-    from scipy.stats import mannwhitneyu
+    from scipy.stats import ttest_ind
     df = pd.read_csv(OUT_DATA / "fig2A_onset_box.csv")
     colors = {"Famine Onset": "darksalmon", "No Famine": "lightblue"}
     grp_data = {}
@@ -378,9 +378,10 @@ def _draw_2A(ax):
         ax.scatter(np.random.normal(i, 0.07, len(sub)), sub,
                    color="black", alpha=0.45, s=18, zorder=3)
 
-    # Mann-Whitney U significance annotation
-    _, pval = mannwhitneyu(grp_data["Famine Onset"], grp_data["No Famine"],
-                              alternative="greater")
+    # Welch t-test (one-sided: famine onset > no famine)
+    _, pval_two = ttest_ind(grp_data["Famine Onset"], grp_data["No Famine"],
+                            equal_var=False)
+    pval = pval_two / 2
     y_top = max(grp_data["Famine Onset"].max(), grp_data["No Famine"].max())
     y_range = y_top - min(grp_data["Famine Onset"].min(), grp_data["No Famine"].min())
     y_bar = y_top + 0.08 * y_range
@@ -664,15 +665,14 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     cb.set_label("Pearson r", fontsize=FS - 2)
     ax.set_title(title, fontsize=FS, fontweight="bold", loc="left")
 
-    # Central Europe region outline – country union from Switzerland/Germany to Ukraine + Balkans
+    # Central Europe region outline
     import cartopy.io.shapereader as shpreader
     import geopandas as gpd
     from shapely.ops import unary_union
     _CE_COUNTRIES = {
-        "Switzerland", "Germany", "Austria", "Czechia", "Poland",
-        "Slovakia", "Hungary", "Romania", "Slovenia", "Croatia",
-        "Bosnia and Herz.", "Serbia", "Montenegro", "North Macedonia",
-        "Bulgaria", "Kosovo", "Liechtenstein",
+        "Switzerland", "Germany", "Austria", "Czechia",
+        "Hungary", "Slovenia", "Bosnia and Herz.",
+        "Slovakia", "Croatia", "Serbia",
     }
     _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
                                        name="admin_0_countries")
@@ -682,6 +682,23 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
         [_ce_geom], crs=ccrs.PlateCarree(),
         facecolor="none", edgecolor="red", linewidth=4.0, zorder=10
     )
+
+    # Yield record locations – purple = teleconnected (PDSI p<0.10), white = not
+    import pandas as _pd
+    _yield = _pd.read_csv(DATA_PROC / "yield_ljungqvist_2025.csv")
+    _ylocs = (
+        _yield.groupby(["lat", "lon"])
+        .agg(teleco=("teleco_PDSI_10", "max"))
+        .reset_index()
+    )
+    _tele = _ylocs[_ylocs["teleco"] == 1]
+    _non  = _ylocs[_ylocs["teleco"] == 0]
+    ax.scatter(_non["lon"],  _non["lat"],  s=180, color="white",
+               edgecolors="#333333", linewidths=1.1,
+               transform=ccrs.PlateCarree(), zorder=11, alpha=0.9)
+    ax.scatter(_tele["lon"], _tele["lat"], s=200, color="#7b2d8b",
+               edgecolors="white", linewidths=1.1,
+               transform=ccrs.PlateCarree(), zorder=12)
 
 
 def _compute_teleconnections():
@@ -781,10 +798,112 @@ def _compute_teleconnections():
             corr_prec, p_prec, lat2d_pr, lon2d_pr)
 
 
+def _draw_pdsi_composite_map(ax):
+    """
+    Panel B replacement: PDSI composite anomaly for Counterfactual-ML famine years,
+    replicating mechanisms.ipynb Fig 1a with black stippling (p < 0.05).
+    """
+    import xarray as xr
+    import cftime
+    from scipy.stats import ttest_ind
+    from matplotlib.colors import BoundaryNorm
+
+    DATA_RAW  = ROOT / "data"
+    DATA_PROC = ROOT / "processed data"
+
+    # Load OWDA
+    _coder  = xr.coders.CFDatetimeCoder(use_cftime=True)
+    owda    = xr.open_dataset(DATA_RAW / "owda.nc", decode_times=_coder)
+    owda    = owda.assign_coords(Year=owda.time).swap_dims({"time": "Year"})
+    owda    = owda.sel(Year=slice(1500, 1800))
+    owda_eu = owda.sel(lat=slice(35, 70), lon=slice(-15, 35))
+
+    # Load famine-year list (Counterfactual ML: predicted=1, counterfactual=0)
+    chron = pd.read_csv(OUT_DATA / "fig2C_chronology_onsets.csv")
+    ef_years = sorted(
+        chron[(chron["Predicted_ML"] == 1) & (chron["Counterfactual_ML"] == 0)]["Year"].tolist()
+    )
+
+    # Compute composite anomaly
+    da       = owda_eu["pdsi"].transpose("Year", "lat", "lon")
+    all_yrs  = da["Year"].values.astype(int)
+    matched  = [y for y in ef_years if y in all_yrs]
+    baseline = [y for y in all_yrs  if y not in ef_years]
+
+    ef_3d  = da.sel(Year=matched).values
+    bas_3d = da.sel(Year=baseline).values
+    anom   = ef_3d.mean(axis=0) - bas_3d.mean(axis=0)
+
+    nlat, nlon = ef_3d.shape[1], ef_3d.shape[2]
+    pvals = np.full((nlat, nlon), np.nan)
+    for i in range(nlat):
+        for j in range(nlon):
+            e, b = ef_3d[:, i, j], bas_3d[:, i, j]
+            me, mb = np.isfinite(e), np.isfinite(b)
+            if me.sum() >= 3 and mb.sum() >= 3:
+                _, pvals[i, j] = ttest_ind(e[me], b[mb], equal_var=False)
+
+    lon    = owda_eu["lon"].values
+    lat    = owda_eu["lat"].values
+    lon2d, lat2d = np.meshgrid(lon, lat)
+
+    levels = np.linspace(-1.0, 1.0, 11)
+    cmap_  = plt.get_cmap("BrBG", len(levels) + 1)
+    norm   = BoundaryNorm(levels, ncolors=cmap_.N, extend="both")
+
+    im = ax.pcolormesh(lon2d, lat2d, anom,
+                       transform=ccrs.PlateCarree(),
+                       cmap=cmap_, norm=norm, shading="auto")
+    sig = pvals <= 0.10
+    ax.scatter(lon2d[sig], lat2d[sig], s=25, color="black",
+               transform=ccrs.PlateCarree(), zorder=5, alpha=0.7)
+
+    ax.coastlines(linewidth=0.9)
+    ax.add_feature(cfeature.BORDERS, linestyle=":", linewidth=0.5)
+    ax.add_feature(cfeature.LAND, facecolor="whitesmoke", zorder=0)
+    ax.add_feature(cfeature.OCEAN, facecolor="aliceblue", zorder=0)
+    ax.set_extent([-12, 36, 35, 71], crs=ccrs.PlateCarree())
+
+    # Central Europe region outline
+    import cartopy.io.shapereader as shpreader
+    import geopandas as gpd
+    from shapely.ops import unary_union
+    _CE_COUNTRIES = {
+        "Switzerland", "Germany", "Austria", "Czechia",
+        "Hungary", "Slovenia", "Bosnia and Herz.",
+        "Slovakia", "Croatia", "Serbia",
+    }
+    _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
+                                       name="admin_0_countries")
+    _gdf = gpd.read_file(_ne_path)
+    _ce_geom = unary_union(_gdf[_gdf["NAME"].isin(_CE_COUNTRIES)]["geometry"].values)
+    ax.add_geometries(
+        [_ce_geom], crs=ccrs.PlateCarree(),
+        facecolor="none", edgecolor="red", linewidth=4.0, zorder=10
+    )
+
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                      linewidth=0.6, color="gray", alpha=0.5, linestyle="--")
+    gl.top_labels   = False
+    gl.right_labels = False
+    gl.xlocator = mticker.FixedLocator([-10, 0, 10, 20, 30])
+    gl.ylocator = mticker.FixedLocator([40, 50, 60, 70])
+    gl.xlabel_style = {"size": FS - 3}
+    gl.ylabel_style = {"size": FS - 3}
+
+    cb = plt.colorbar(im, ax=ax, orientation="vertical",
+                      fraction=0.046, pad=0.06, extend="both")
+    cb.ax.tick_params(labelsize=FS - 3)
+    cb.set_label(r"$\Delta$scPDSI", fontsize=FS - 2)
+    n = len(matched)
+    ax.set_title(f"PDSI anomaly – ENSO Famines (n={n})",
+                 fontsize=FS, fontweight="bold", loc="left")
+
+
 def make_fig3():
     tele = _compute_teleconnections()
     corr_pdsi, p_pdsi, lat2d_p, lon2d_p = tele[:4]
-    corr_prec, p_prec, lat2d_pr, lon2d_pr = tele[4:]
+    # tele[4:] (precip teleconnection) no longer used for panel B
 
     df_c = pd.read_csv(OUT_DATA / "fig3C_irf_yield_WR.csv")
     df_d = pd.read_csv(OUT_DATA / "fig3D_irf_yield_noWR.csv")
@@ -805,14 +924,9 @@ def make_fig3():
                   ha="center", va="center")
     _label(ax_a, "a")
 
-    # B – precipitation map
+    # B – PDSI composite anomaly map (mechanisms Fig 1a)
     ax_b = fig.add_subplot(gs[0, 1], projection=proj)
-    if corr_prec is not None:
-        _draw_teleco_map(ax_b, corr_prec, p_prec, lat2d_pr, lon2d_pr,
-                         "ENSO / Precip correlation", "BrBG")
-    else:
-        ax_b.text(0.5, 0.5, "Data not found", transform=ax_b.transAxes,
-                  ha="center", va="center")
+    _draw_pdsi_composite_map(ax_b)
     _label(ax_b, "b")
 
     # C – Wheat/Rye IRF (points + whiskers)
