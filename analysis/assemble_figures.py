@@ -178,7 +178,7 @@ def _draw_1A(ax, data):
     ax.axhline(0, color="black", lw=1.0, linestyle="--")
 
     spans = [
-        (1590, 1600, "red",    0.25, "1590s/1690s Super Famines"),
+        (1590, 1600, "red",    0.25, "1590s/1690s Catastrophic Famines"),
         (1690, 1700, "red",    0.25, "_"),
         (1635, 1637, "blue",   0.85, "Famine in Central Europe"),
         (1648, 1652, "gray",   0.45, "Europe-wide Famine"),
@@ -312,7 +312,8 @@ def _draw_1C(ax, data, region_colors):
 
     ax.legend(handles=[Patch(color="dimgray",  label="Famine Years (left bar)"),
                         Patch(color="lightgray", label="Famine Periods (right bar)")],
-              loc="upper left", fontsize=FS, frameon=False)
+              loc="upper left", fontsize=FS, frameon=False,
+              prop={"weight": "bold"})
 
 
 def make_fig1():
@@ -672,7 +673,7 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     _CE_COUNTRIES = {
         "Switzerland", "Germany", "Austria", "Czechia",
         "Hungary", "Slovenia", "Bosnia and Herz.",
-        "Slovakia", "Croatia", "Serbia",
+        "Slovakia", "Croatia", "Serbia", "Poland",
     }
     _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
                                        name="admin_0_countries")
@@ -871,7 +872,7 @@ def _draw_pdsi_composite_map(ax):
     _CE_COUNTRIES = {
         "Switzerland", "Germany", "Austria", "Czechia",
         "Hungary", "Slovenia", "Bosnia and Herz.",
-        "Slovakia", "Croatia", "Serbia",
+        "Slovakia", "Croatia", "Serbia", "Poland",
     }
     _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
                                        name="admin_0_countries")
@@ -1121,11 +1122,17 @@ def make_fig5():
                              columnspacing=0.8, handlelength=1.5))
     _title(ax_a, "Grain price response to ENSO")
     _label(ax_a, "a")
+    ax_a.tick_params(axis="both", labelsize=FS + 1)
+    ax_a.set_xlabel(ax_a.get_xlabel(), fontsize=LAB + 1)
+    ax_a.set_ylabel(ax_a.get_ylabel(), fontsize=LAB + 1)
 
     _draw_irf(ax_b, df_b, "species", "Price variation",
               ribbon_group="All")
     _title(ax_b, "Fish price response to ENSO")
     _label(ax_b, "b")
+    ax_b.tick_params(axis="both", labelsize=FS + 1)
+    ax_b.set_xlabel(ax_b.get_xlabel(), fontsize=LAB + 1)
+    ax_b.set_ylabel(ax_b.get_ylabel(), fontsize=LAB + 1)
 
     fig.tight_layout(w_pad=4)
     fig.savefig(OUT_MAIN / "fig5_combined.pdf", dpi=300, bbox_inches="tight")

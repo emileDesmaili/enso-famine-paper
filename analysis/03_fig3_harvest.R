@@ -569,7 +569,9 @@ plot_bootstrap_WR <- function() {
     geom_line(data = true_df, aes(x = horizon, y = irf_mean),
               color = "black", linewidth = 1.1) +
     scale_x_continuous(breaks = scales::pretty_breaks()) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1),
+                       limits = c(-0.06, NA),
+                       breaks = c(-0.05, 0, 0.05)) +
     labs(x = "Horizon (years)",
          y = "% Harvest response",
          caption = "Blue band: 95% permutation null interval. Black line: true IRF.") +
@@ -701,7 +703,7 @@ if (!interactive()) {
   export_loo_WR(yield_2023)
   export_20y_WR(yield_2023)
   export_WR_ninocheck(yield_2023)
-  export_bootstrap_WR(yield_2023, n_iter = 10)
+  export_bootstrap_WR(yield_2023, n_iter = 500)
   plot_loo_WR()
   plot_ninocheck_WR()
   plot_yield63()

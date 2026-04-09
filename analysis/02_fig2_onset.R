@@ -256,18 +256,21 @@ plot_permutation_onset <- function() {
   if (!file.exists(path)) { message("figA_permutation_onset.csv not found"); return() }
   df    <- read.csv(path) |> dplyr::filter(!is.na(estimate))
   true_v <- df$true_estimate[1]
-  p_val  <- round(mean(df$estimate >= true_v), 3)
+  p_val  <- round(mean(abs(df$estimate) >= abs(true_v)), 3)
+  p_lab  <- if (p_val == 0) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_val))
   p <- ggplot(df, aes(x = estimate)) +
     geom_histogram(aes(y = after_stat(density)), bins = 50,
                    fill = "cornflowerblue", color = "white", alpha = 0.7) +
-    geom_vline(xintercept = true_v, color = "orange", linetype = "solid", linewidth = 1) +
-    annotate("text", x = true_v, y = Inf, hjust = -0.15, vjust = 1.5,
-             label = paste0("True est.\np = ", p_val),
-             color = "black", size = 4) +
+    geom_vline(xintercept = true_v, color = "firebrick", linetype = "solid", linewidth = 1.2) +
+    annotate("text", x = true_v, y = Inf, hjust = 1.1, vjust = 2,
+             label = paste0("Observed\n", p_lab),
+             color = "firebrick", size = 4.5, fontface = "bold") +
     labs(x = "Permuted LPM coefficient",
-         y = "Density") +
-    theme_classic(base_size = 13) +
-    theme(panel.grid = element_blank())
+         y = "Density",
+         caption = "Two-sided permutation p-value: P(|perm| \u2265 |observed|)") +
+    theme_classic(base_size = 14) +
+    theme(panel.grid = element_blank(),
+          plot.caption = element_text(size = 10, color = "gray40"))
   ggsave(file.path(fig_out, "figA_permutation_onset.pdf"), p,
          width = 7, height = 5, device = cairo_pdf)
   message("Saved figA_permutation_onset.pdf")
@@ -282,7 +285,7 @@ if (!interactive()) {
   export_fig2B(data)
   save_onset_table(data)
   export_loo_onset(data)
-  export_permutation_onset(data, n_iter = 100)
+  export_permutation_onset(data, n_iter = 1000)
   plot_loo_onset()
   plot_permutation_onset()
   message("Fig 2 data exports complete.")

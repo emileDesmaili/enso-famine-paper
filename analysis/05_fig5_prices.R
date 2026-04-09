@@ -316,7 +316,7 @@ plot_allen_irf <- function() {
     scale_fill_manual(values = .CTRL_COLORS) +
     scale_linetype_manual(values = .CTRL_LTY) +
     labs(x = "Horizon (years)",
-         y = "% Wheat price response\n(Allen dataset)",
+         y = "Price variation",
          color = "Controls", fill = "Controls", linetype = "Controls") +
     theme_classic(base_size = 18) +
     theme(legend.position = "bottom",
@@ -622,8 +622,8 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
 }
 
 plot_ninocheck_price <- function() {
-  y_price <- "% Grain price response"
-  y_fish  <- "% Fish price response"
+  y_price <- "Price variation"
+  y_fish  <- "Price variation"
   .ninocheck_plot("figA_irf_price_ninocheck.csv",     y_price, "figA_irf_ninocheck_price.pdf")
   .ninocheck_plot("figA_irf_fishprice_ninocheck.csv", y_fish,  "figA_irf_ninocheck_fishprice.pdf")
 }
@@ -647,7 +647,7 @@ plot_FSV_irf <- function() {
     scale_fill_manual(values = .CTRL_COLORS) +
     scale_linetype_manual(values = .CTRL_LTY) +
     labs(x = "Horizon (years)",
-         y = "% Wheat price response\n(Federico-Schulze-Ville\u00e8ne dataset)",
+         y = "Price variation",
          color = "Controls", fill = "Controls", linetype = "Controls") +
     theme_classic(base_size = 18) +
     theme(legend.position = "bottom",
@@ -661,8 +661,8 @@ plot_FSV_irf <- function() {
 }
 
 plot_bootstrap_price <- function() {
-  y_price <- "Log grain price response"
-  y_fish  <- "Log fish price response"
+  y_price <- "Price variation"
+  y_fish  <- "Price variation"
   .bootstrap_plot("figA_irf_price_bootstrap_null.csv",
                   "figA_irf_price_bootstrap_true.csv",
                   y_price, "figA_irf_bootstrap_price.pdf")
@@ -672,8 +672,8 @@ plot_bootstrap_price <- function() {
 }
 
 plot_loo_price <- function() {
-  y_price <- "% Grain price response"
-  y_fish  <- "% Fish price response"
+  y_price <- "Price variation"
+  y_fish  <- "Price variation"
 
   .make_loo <- function(base_csv, base_grp, loo_csv, grp_col, y_label, out_file) {
     for (f in c(file.path(out_data, base_csv), file.path(out_data, loo_csv))) {
@@ -728,13 +728,13 @@ plot_loo_price <- function() {
 
 plot_se_robust_price <- function() {
   .se_robust_plot("figA_irf_price_serobust.csv",
-                  "Log grain price response",
+                  "Price variation",
                   "figA_irf_serobust_price.pdf")
 }
 
 plot_se_robust_fish <- function() {
   .se_robust_plot("figA_irf_fishprice_serobust.csv",
-                  "Log fish price response",
+                  "Price variation",
                   "figA_irf_serobust_fishprice.pdf")
 }
 
@@ -760,7 +760,7 @@ if (!interactive()) {
   export_loo_fish(fishprice)
   export_20y_fish(fishprice)
   export_fishcatch_irf(fishcatch)
-  export_bootstrap(data, fishprice, n_iter = 10)
+  export_bootstrap(data, fishprice, n_iter = 500)
   plot_ninocheck_price()
   plot_allen_irf()
   plot_FSV_irf()
