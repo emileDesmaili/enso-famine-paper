@@ -448,6 +448,7 @@ save_survival_tables <- function(famine_long, famine_summary) {
 
   stargazer(weib, loglog, gauss, type = "latex",
             title = "Parametric Survival Models of Famine Duration",
+            label = "tab:survival_models_parametric",
             dep.var.labels = "Duration",
             covariate.labels = "Nino34",
             single.row = TRUE,
@@ -456,8 +457,12 @@ save_survival_tables <- function(famine_long, famine_summary) {
             out = file.path(tab_out, "survival_models_parametric.tex"))
   message("Saved survival_models_parametric.tex")
 
-  dict <- c(avg_nino34 = "Nino3.4", max_2y_nino = "Max Nino3.4 (2y)",
-            avg_ongoing_wars = "Ongoing wars", duration = "Duration (years)")
+  dict <- c(avg_nino34                = "NINO3.4",
+            max_2y_nino              = "Max NINO3.4 (2y)",
+            "get(\"avg_nino34\")"    = "NINO3.4",
+            "get(\"max_2y_nino\")"   = "Max NINO3.4 (2y)",
+            avg_ongoing_wars         = "Ongoing wars",
+            duration                 = "Duration (years)")
 
   for (nino_var in c("avg_nino34", "max_2y_nino")) {
     ols1  <- feols(duration ~ get(nino_var) | Region,
@@ -483,7 +488,7 @@ save_survival_tables <- function(famine_long, famine_summary) {
              else "famine_duration_fe_maxnino.tex"
     etable(ols1, ols2, pois1, pois2, nb1, nb2,
            keep = "%nino", dict = dict,
-           label = paste0("tab:duration_", nino_var),
+           label = if (nino_var == "avg_nino34") "tab:duration_avgnino" else "tab:duration_maxnino",
            title = paste("Effect of a 1\\textdegree C Anomaly in the",
                          ifelse(nino_var == "avg_nino34", "Average", "Max 2-year"),
                          "Nino 3.4 Index on Famine Duration"),
@@ -544,18 +549,21 @@ plot_permutation_survival <- function() {
   if (!file.exists(path)) { message("figA_permutation_survival.csv not found"); return() }
   df    <- read.csv(path) |> dplyr::filter(!is.na(estimate))
   true_v <- df$true_estimate[1]
-  p_val  <- round(mean(df$estimate >= true_v), 3)
+  p_val  <- round(mean(abs(df$estimate) >= abs(true_v)), 3)
+  p_lab  <- if (p_val == 0) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_val))
   p <- ggplot(df, aes(x = estimate)) +
     geom_histogram(aes(y = after_stat(density)), bins = 50,
                    fill = "cornflowerblue", color = "white", alpha = 0.7) +
-    geom_vline(xintercept = true_v, color = "orange", linetype = "solid", linewidth = 1) +
-    annotate("text", x = true_v, y = Inf, hjust = -0.15, vjust = 1.5,
-             label = paste0("True est.\np = ", p_val),
-             color = "black", size = 4) +
+    geom_vline(xintercept = true_v, color = "firebrick", linetype = "solid", linewidth = 1.2) +
+    annotate("text", x = true_v, y = Inf, hjust = -0.1, vjust = 2,
+             label = paste0("Observed\n", p_lab),
+             color = "firebrick", size = 4.5, fontface = "bold") +
     labs(x = "Permuted NINO3.4 log hazard ratio",
-         y = "Density") +
-    theme_classic(base_size = 13) +
-    theme(panel.grid = element_blank())
+         y = "Density",
+         caption = "Two-sided permutation p-value: P(|perm| \u2265 |observed|)") +
+    theme_classic(base_size = 14) +
+    theme(panel.grid = element_blank(),
+          plot.caption = element_text(size = 10, color = "gray40"))
   ggsave(file.path(fig_out, "figA_permutation_cox.pdf"), p,
          width = 7, height = 5, device = cairo_pdf)
   message("Saved figA_permutation_cox.pdf")
@@ -599,7 +607,7 @@ if (!interactive()) {
   export_fig4B(models, famine_summary)
   export_surv_strata(models, famine_summary)
   export_surv_inter(models, famine_summary)
-  export_permutation_survival(famine_long, n_iter=100)
+  export_permutation_survival(famine_long, n_iter=1000)
   export_loo_duration(famine_long)
   save_survival_tables(famine_long, famine_summary)
   plot_surv_strata()

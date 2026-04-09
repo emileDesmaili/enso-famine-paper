@@ -393,7 +393,7 @@ save_granger_table <- function() {
     escape    = FALSE,
     col.names = c("Variable", "Direction", "\\textit{p}-value"),
     caption   = "Granger causality tests for the relationship between ENSO (NINO3.4), prices, and yields.",
-    label     = "tab:granger_enso"
+    label     = "granger_enso"
   )
 
   writeLines(latex_table, file.path(OUT_TAB, "granger_enso.tex"))
