@@ -229,7 +229,7 @@ def run_onset_classifier():
                 cv_scores=cv_scores,
             )
 
-    # Save confusion/metrics figure for model with highest OOS F1
+    # Save confusion/metrics + reliability figures for model with highest OOS F1
     best_entry  = max(all_models, key=lambda t: t[5])
     best_suffix, best_best, best_thr, best_X, best_y, best_f1 = best_entry
     print(f"Best OOS F1 model: {best_suffix} (F1={best_f1:.3f})")
@@ -375,45 +375,41 @@ def _save_counts_pdf(df_chron, suffix):
 
 
 def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_features"):
-    """Confusion matrices (top row) + metrics bar chart (bottom) for in-sample and OOS."""
-    from sklearn.metrics import f1_score, precision_score, recall_score, average_precision_score
+    """Confusion matrices (A, B) + metrics bar chart (C) + Brier scores (D)."""
+    from sklearn.metrics import f1_score, brier_score_loss
 
-    # In-sample (threshold-aware)
+    # In-sample
     prob_is  = best.predict_proba(X)[:, 1]
     pred_is  = (prob_is >= threshold).astype(int)
     cm_is    = confusion_matrix(y, pred_is)
     fpr_is, tpr_is, _ = roc_curve(y, prob_is)
     metrics_is = {
-        "Accuracy":  accuracy_score(y, pred_is),
-        "F1":        f1_score(y, pred_is, zero_division=0),
-        "Precision": precision_score(y, pred_is, zero_division=0),
-        "Recall":    recall_score(y, pred_is, zero_division=0),
-        "AUROC":     auc(fpr_is, tpr_is),
-        "AUPRC":     average_precision_score(y, prob_is),
+        "Accuracy": accuracy_score(y, pred_is),
+        "F1":       f1_score(y, pred_is, zero_division=0),
+        "AUROC":    auc(fpr_is, tpr_is),
     }
+    brier_is = brier_score_loss(y, prob_is)
 
-    # Out-of-sample (stratified CV, threshold-aware)
+    # Out-of-sample (stratified CV)
     prob_oos = cross_val_predict(best, X, y, cv=cv, method="predict_proba")[:, 1]
     pred_oos = (prob_oos >= threshold).astype(int)
     cm_oos   = confusion_matrix(y, pred_oos)
     fpr_oos, tpr_oos, _ = roc_curve(y, prob_oos)
     metrics_oos = {
-        "Accuracy":  accuracy_score(y, pred_oos),
-        "F1":        f1_score(y, pred_oos, zero_division=0),
-        "Precision": precision_score(y, pred_oos, zero_division=0),
-        "Recall":    recall_score(y, pred_oos, zero_division=0),
-        "AUROC":     auc(fpr_oos, tpr_oos),
-        "AUPRC":     average_precision_score(y, prob_oos),
+        "Accuracy": accuracy_score(y, pred_oos),
+        "F1":       f1_score(y, pred_oos, zero_division=0),
+        "AUROC":    auc(fpr_oos, tpr_oos),
     }
+    brier_oos = brier_score_loss(y, prob_oos)
 
     fig = plt.figure(figsize=(18, 10))
     gs  = gridspec.GridSpec(2, 2, figure=fig,
                             height_ratios=[1.4, 1.0],
                             hspace=0.52, wspace=0.42)
 
-    labels = ["No famine", "Famine"]
+    cm_labels = ["No famine", "Famine"]
 
-    # ── Top row: confusion matrices ──────────────────────────────────────────
+    # ── Top row: confusion matrices (A, B) ──────────────────────────────────
     for col, (cm, title) in enumerate([
         (cm_is,  "Confusion matrix\n(in-sample)"),
         (cm_oos, "Confusion matrix\n(OOS, stratified 10-fold CV)"),
@@ -421,8 +417,8 @@ def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_featur
         ax = fig.add_subplot(gs[0, col])
         cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
         im = ax.imshow(cm_norm, cmap="Reds", vmin=0, vmax=1)
-        ax.set_xticks([0, 1]); ax.set_xticklabels(labels, fontsize=FONT_SIZE - 3)
-        ax.set_yticks([0, 1]); ax.set_yticklabels(labels, fontsize=FONT_SIZE - 3)
+        ax.set_xticks([0, 1]); ax.set_xticklabels(cm_labels, fontsize=FONT_SIZE - 3)
+        ax.set_yticks([0, 1]); ax.set_yticklabels(cm_labels, fontsize=FONT_SIZE - 3)
         ax.set_xlabel("Predicted", fontsize=FONT_SIZE - 1)
         ax.set_ylabel("Actual",    fontsize=FONT_SIZE - 1)
         ax.set_title(title, fontsize=FONT_SIZE - 1, pad=8)
@@ -437,16 +433,15 @@ def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_featur
         ax.text(-0.18, 1.08, letter, transform=ax.transAxes,
                 fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
 
-    # ── Bottom row: grouped metric bars ─────────────────────────────────────
+    # ── Bottom-left: grouped metric bars (C) ────────────────────────────────
     metric_names = list(metrics_is.keys())
-    x      = np.arange(len(metric_names))
-    width  = 0.35
-    colors_bar = {"In-sample": "firebrick", "OOS (10-fold CV)": "steelblue"}
+    x     = np.arange(len(metric_names))
+    width = 0.35
 
-    ax_m = fig.add_subplot(gs[1, :])
+    ax_m = fig.add_subplot(gs[1, 0])
     bars_is  = ax_m.bar(x - width / 2,
                         [metrics_is[m]  for m in metric_names],
-                        width, label="In-sample",      color="firebrick",  alpha=0.85)
+                        width, label="In-sample",        color="firebrick",  alpha=0.85)
     bars_oos = ax_m.bar(x + width / 2,
                         [metrics_oos[m] for m in metric_names],
                         width, label="OOS (10-fold CV)", color="steelblue", alpha=0.85)
@@ -462,7 +457,25 @@ def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_featur
     ax_m.legend(frameon=False, fontsize=FONT_SIZE - 2,
                 loc="upper right", bbox_to_anchor=(1.0, 1.32))
     _polish(ax_m)
-    ax_m.text(-0.07, 1.06, "C", transform=ax_m.transAxes,
+    ax_m.text(-0.14, 1.06, "C", transform=ax_m.transAxes,
+              fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
+
+    # ── Bottom-right: Brier score bar chart (D) ──────────────────────────────
+    ax_b = fig.add_subplot(gs[1, 1])
+    brier_labels = ["In-sample", "OOS (10-fold CV)"]
+    brier_vals   = [brier_is, brier_oos]
+    bars_b = ax_b.bar(brier_labels, brier_vals,
+                      color=["firebrick", "steelblue"], alpha=0.85, edgecolor=None)
+    for bar, v in zip(bars_b, brier_vals):
+        ax_b.text(bar.get_x() + bar.get_width() / 2, v + 0.003,
+                  f"{v:.3f}", ha="center", va="bottom",
+                  fontsize=FONT_SIZE - 1, fontweight="bold")
+    ax_b.set_ylabel("Brier score", fontsize=FONT_SIZE)
+    ax_b.set_ylim(0, 1)
+    ax_b.text(0.97, 0.97, "$\\downarrow$ lower is better", transform=ax_b.transAxes,
+              ha="right", va="top", fontsize=FONT_SIZE + 2, color="dimgray")
+    _polish(ax_b)
+    ax_b.text(-0.14, 1.06, "D", transform=ax_b.transAxes,
               fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
 
     out_path = OUT_APP / f"figA_ML_onset_confusion_roc_{suffix}.pdf"

@@ -8,3 +8,7 @@ paper
 *.pdf
 *.png
 *.xlsx
+*.zip
+*.tar
+*.tar.gz
+*.log

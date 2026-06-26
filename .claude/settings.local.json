@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tar -tf \"data/ModE-Sim_s14203_forc_1-3.tar\")",
+      "Bash(python -c ' *)",
+      "Bash(/c/Users/emile/miniconda3/envs/famine-enso/python -c ' *)",
+      "Bash(/c/Users/emile/miniconda3/envs/famine-enso/python.exe -c ' *)",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python -c \\\\\"import tarfile, xarray as xr, tempfile, os; tf=tarfile.open\\('D:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_1-3.tar'\\); f=tf.extractfile\\('ModE-Sim_set_1420-3_m041_sst_abs_1380-1849_mon.nc'\\); data=f.read\\(\\); tmp=tempfile.mktemp\\(suffix='.nc'\\); open\\(tmp,'wb'\\).write\\(data\\); ds=xr.open_dataset\\(tmp,use_cftime=True\\); print\\(ds\\); print\\('dims:',list\\(ds.dims\\)\\); print\\('vars:',list\\(ds.data_vars\\)\\); os.unlink\\(tmp\\)\\\\\"\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python -c \\\\\"print\\('hello'\\)\\\\\" 2>&1\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python -c \\\\\"print\\('hello'\\)\\\\\"\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python D:\\\\git\\\\enso-famine-paper\\\\inspect_nc.py\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python -c \\\\\"import tarfile, xarray as xr, tempfile, os; tf=tarfile.open\\('D:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_1-3.tar'\\); m=tf.getmembers\\(\\)[0]; f=tf.extractfile\\(m\\); data=f.read\\(\\); tmp='D:/nc_tmp.nc'; open\\(tmp,'wb'\\).write\\(data\\); ds=xr.open_dataset\\(tmp,use_cftime=True\\); result=str\\(ds\\)+chr\\(10\\)+'dims:'+str\\(list\\(ds.dims\\)\\)+chr\\(10\\)+'vars:'+str\\(list\\(ds.data_vars\\)\\); open\\('D:/nc_info.txt','w'\\).write\\(result\\); ds.close\\(\\); os.unlink\\(tmp\\)\\\\\"\")",
+      "Read(//d//**)",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python -c \\\\\"import xarray as xr; ds=xr.open_dataset\\('D:/git/enso-famine-paper/data/owda.nc'\\); open\\('D:/owda_info.txt','w'\\).write\\(str\\(ds\\)+'\\\\\\\\nlat:'+str\\(ds.lat.values[:5]\\)+'...'+str\\(ds.lat.values[-5:]\\)+'\\\\\\\\nlon:'+str\\(ds.lon.values[:5]\\)+'...'+str\\(ds.lon.values[-5:]\\)\\)\\\\\"\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python D:\\\\owda_check.py\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python D:\\\\git\\\\enso-famine-paper\\\\owda_check.py > D:\\\\git\\\\enso-famine-paper\\\\owda_run.txt 2>&1\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\Scripts\\\\conda.exe run -n famine-enso python D:\\\\git\\\\enso-famine-paper\\\\owda_check.py\")",
+      "Bash(cmd.exe /c \"where python\")",
+      "Bash(cmd.exe /c \"dir C:\\\\Users\\\\emile\\\\miniconda3\\\\envs\\\\famine-enso\\\\python.exe\")",
+      "Bash(cmd.exe /c \"dir C:\\\\Users\\\\emile\\\\miniconda3\\\\envs\\\\famine-enso\\\\\" 2>&1 | head -20)",
+      "Bash(cmd.exe /c \"dir C:\\\\Users\\\\emile\\\\miniconda3\\\\envs\\\\famine-enso\")",
+      "Bash(find /mnt -maxdepth 5 -name \"python.exe\" -path \"*famine*\")",
+      "Bash(find /mnt -maxdepth 5 -name \"conda.exe\")",
+      "Bash(ls /mnt/)",
+      "Read(//proc/**)",
+      "Bash(cmd.exe /c \"dir C:\\\\Users\\\\emile\\\\miniconda3\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\python.exe D:\\\\git\\\\enso-famine-paper\\\\owda_check.py\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\emile\\\\miniconda3\\\\python.exe -c \\\\\"print\\(1+1\\)\\\\\"\")",
+      "Bash(tar -tf \"d:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_1-3.tar\")",
+      "Bash(tar -tf \"d:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_4-6.tar\")",
+      "Bash(tar -tf \"d:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_7-10.tar\")",
+      "Bash(awk 'NR<=3')",
+      "Bash(/c/Users/emile/anaconda3/envs/famine-enso/python.exe -)",
+      "Bash(Rscript -e \"rmarkdown::render\\('analysis notebooks/Extended Data.Rmd', output_format='html_notebook'\\)\")"
+    ]
+  }
+}

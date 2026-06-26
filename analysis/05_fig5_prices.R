@@ -60,15 +60,19 @@ for (d in c(out_data, fig_out)) dir.create(d, recursive = TRUE, showWarnings = F
 source(file.path(ROOT, "emileRegs.R"))
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+# Includes 3 lags of the shock in the controls (NINO3.4 persistence).
 run_lp_price <- function(df, endog, shock = "nino34",
                           controls = "i(Decade)",
                           entity   = "Location",
                           hor      = 10) {
+  lag_ctrl <- paste0("l(", shock, ", 1:3)")
+  ctrl_str <- if (nzchar(controls)) paste(controls, lag_ctrl, sep = " + ")
+              else lag_ctrl
   lp_panel(
     data         = df,
     outcome      = endog,
     main_var     = shock,
-    controls     = controls,
+    controls     = ctrl_str,
     horizon      = hor,
     fe           = entity,
     panel_id     = c(entity, "Year"),
@@ -105,26 +109,56 @@ load_fishcatch <- function() {
 
 ###############################################################################
 # Fig 5A – Grain price IRF
+# Teleconnected / Weakly-affected partition uses an interacted LP
+# (i(teleco_PDSI_10, nino34)) so both slopes and CIs come from a single fit.
+# "All regions" and "All w. controls" remain pooled fits.
 ###############################################################################
 export_fig5A <- function(data) {
-  teleco_conditions <- list(
-    "All regions"     = list(filter = NULL,                    ctrl = "Decade"),
-    "Teleconnected"   = list(filter = quote(teleco_PDSI_10 == 1), ctrl = "Decade"),
-    "Weakly affected" = list(filter = quote(teleco_PDSI_10 == 0), ctrl = "Decade"),
-    "All w. controls" = list(filter = NULL,
-                              ctrl = c("Decade","JSL","NAO_cal",
-                                       "ongoing_wars","Deaths"))
-  )
+  hor <- 10
 
-  bind_rows(lapply(names(teleco_conditions), function(label) {
-    spec   <- teleco_conditions[[label]]
-    df_sub <- if (!is.null(spec$filter)) filter(data, !!spec$filter) else data
-    n_loc  <- dplyr::n_distinct(df_sub$Location)
-    run_lp_price(df_sub, "logprice",
+  # Interacted LP for the teleconnection partition
+  df_inter <- data |>
+    mutate(Decade = as.factor(Decade),
+           teleco_PDSI_10 = as.integer(teleco_PDSI_10))
+  n_tele <- dplyr::n_distinct(filter(data, teleco_PDSI_10 == 1)$Location)
+  n_weak <- dplyr::n_distinct(filter(data, teleco_PDSI_10 == 0)$Location)
+
+  irf_inter <- lp_panel_inter(
+    data         = df_inter,
+    outcome      = "logprice",
+    main_var     = "nino34",
+    interact_var = "teleco_PDSI_10",
+    controls     = "i(Decade) + l(nino34, 1:3)",
+    horizon      = hor,
+    fe           = "Location",
+    panel_id     = c("Location", "Year"),
+    vcov_formula = DK ~ Year
+  ) |>
+    mutate(label = case_when(
+      category == "1" ~ "Teleconnected",
+      category == "0" ~ "Weakly affected",
+      TRUE ~ as.character(category)
+    ),
+    n_loc = if_else(label == "Teleconnected", n_tele, n_weak)) |>
+    transmute(label, n_loc, horizon, irf_mean, irf_up, irf_down)
+
+  # Pooled LP for full sample and full sample with controls
+  pooled_specs <- list(
+    "All regions"     = list(filter = NULL, ctrl = "Decade"),
+    "All w. controls" = list(filter = NULL,
+                              ctrl = c("Decade", "JSL", "NAO_cal",
+                                       "ongoing_wars", "Deaths"))
+  )
+  irf_pooled <- bind_rows(lapply(names(pooled_specs), function(label) {
+    spec  <- pooled_specs[[label]]
+    n_loc <- dplyr::n_distinct(data$Location)
+    run_lp_price(data, "logprice",
                  controls = .build_ctrl(spec$ctrl),
-                 hor      = 10) |>
+                 hor      = hor) |>
       transmute(label = label, n_loc = n_loc, horizon, irf_mean, irf_up, irf_down)
-  })) |>
+  }))
+
+  bind_rows(irf_pooled, irf_inter) |>
     write.csv(file.path(out_data, "fig5A_irf_grain_price.csv"), row.names = FALSE)
   message("Exported fig5A_irf_grain_price.csv")
 }
@@ -133,12 +167,48 @@ export_fig5A <- function(data) {
 ###############################################################################
 # Fig 5B – Fish price IRF by species
 ###############################################################################
+# Sum-to-zero (deviation) coding so the bare `shock` coefficient is the
+# unweighted (Cod + Herring) / 2 average, with a native SE. The Cod and Herring
+# species-specific slopes are pulled from `lp_panel_inter` (mathematically
+# identical to shock ± 0.5 * shock:cod_dev in this same fit).
+run_lp_fish_devcoded <- function(fishprice, shock = "nino34", hor = 10,
+                                  controls = "i(Decade)") {
+  d <- fishprice |>
+    mutate(Decade  = as.factor(floor(Year / 10) * 10),
+           cod_dev = ifelse(Species == "Cod", 0.5, -0.5))
+  lag_ctrl <- paste0("l(", shock, ", 1:3)")
+  ctrl_str <- if (nzchar(controls)) paste(controls, lag_ctrl, sep = " + ")
+              else lag_ctrl
+  bind_rows(lapply(0:hor, function(h) {
+    fml <- as.formula(paste0(
+      "f(logprice,", h, ") - l(logprice,1) ~ ",
+      shock, " + ", shock, ":cod_dev + ", ctrl_str,
+      " | LocationSpecies"))
+    m  <- tryCatch(
+      feols(fml, data = d,
+            panel.id = c("LocationSpecies", "Year"),
+            vcov     = DK ~ Year),
+      error = function(e) NULL)
+    if (is.null(m) || !(shock %in% rownames(vcov(m)))) {
+      return(data.frame(horizon = as.integer(h),
+                        irf_mean = NA_real_,
+                        irf_up   = NA_real_,
+                        irf_down = NA_real_))
+    }
+    V  <- vcov(m)
+    b  <- as.numeric(unname(coef(m)[shock]))
+    se <- as.numeric(sqrt(V[shock, shock]))
+    data.frame(horizon  = as.integer(h),
+               irf_mean = b,
+               irf_up   = b + 1.96 * se,
+               irf_down = b - 1.96 * se)
+  }))
+}
+
 export_fig5B <- function(fishprice) {
-  # Main IRF: all species pooled (no CI shown in the plot)
-  irf_main <- run_lp_price(fishprice, "logprice",
-                            controls = "i(Decade)",
-                            entity   = "LocationSpecies",
-                            hor      = 10) |>
+  # Main IRF: deviation-coded "All" = unweighted (Cod + Herring) / 2 with
+  # native SE from a single fit that also estimates species heterogeneity.
+  irf_main <- run_lp_fish_devcoded(fishprice, hor = 10) |>
     transmute(species = "All", horizon, irf_mean, irf_up, irf_down)
 
   # Interaction IRFs: Cod and Herring via lp_panel_inter
@@ -147,7 +217,7 @@ export_fig5B <- function(fishprice) {
     outcome      = "logprice",
     main_var     = "nino34",
     interact_var = "Species",
-    controls     = "i(Decade)",
+    controls     = "i(Decade) + l(nino34, 1:3)",
     horizon      = 10,
     fe           = "LocationSpecies",
     panel_id     = c("LocationSpecies", "Year"),
@@ -175,7 +245,8 @@ run_lp_se_robust_price <- function(df, endog, entity,
   pid <- c(entity, "Year")
   bind_rows(lapply(0:hor, function(h) {
     fml <- as.formula(paste0(
-      "f(", endog, ",", h, ") - l(", endog, ",1) ~ nino34 + i(Decade) | ", entity
+      "f(", endog, ",", h, ") - l(", endog, ",1) ~ nino34 + l(nino34, 1:3) ",
+      "+ i(Decade) | ", entity
     ))
     mod <- feols(fml, data = df, panel.id = pid, vcov = DK ~ Year)
 
@@ -216,9 +287,55 @@ export_se_robust_price <- function(data) {
   message("Exported figA_irf_price_serobust.csv")
 }
 
+# Deviation-coded SE-robustness: bare `nino34` = (Cod+Herring)/2 average,
+# four vcov variants applied to the same dev-coded LP fit.
+run_lp_se_robust_fish_devcoded <- function(fishprice,
+                                            lat_col = "Latitude",
+                                            lon_col = "Longitude",
+                                            hor = 10) {
+  d <- fishprice |>
+    mutate(Decade  = as.factor(floor(Year / 10) * 10),
+           cod_dev = ifelse(Species == "Cod", 0.5, -0.5))
+  pid <- c("LocationSpecies", "Year")
+  bind_rows(lapply(0:hor, function(h) {
+    fml <- as.formula(paste0(
+      "f(logprice,", h, ") - l(logprice,1) ~ ",
+      "nino34 + nino34:cod_dev + l(nino34, 1:3) + i(Decade) | LocationSpecies"))
+    mod <- feols(fml, data = d, panel.id = pid, vcov = DK ~ Year)
+
+    v_conley <- tryCatch(
+      vcov(mod, vcov = vcov_conley(lat = lat_col, lon = lon_col,
+                                   cutoff = 300, distance = "triangular")),
+      error = function(e) NULL
+    )
+    v_nw   <- vcov(mod, vcov = NW ~ Year)
+    v_het  <- vcov(mod, vcov = "hetero")
+    v_spat <- if (!is.null(v_conley)) v_conley + v_nw - v_het else NULL
+
+    se_list <- list(
+      "DK"          = vcov(mod, vcov = DK ~ Year),
+      "2-way"       = vcov(mod, vcov = ~ LocationSpecies + Year),
+      "Conley"      = v_conley,
+      "Spatial HAC" = v_spat
+    )
+
+    bind_rows(lapply(names(se_list), function(nm) {
+      V <- se_list[[nm]]
+      if (is.null(V)) return(NULL)
+      b  <- coef(mod)["nino34"]
+      se <- sqrt(V["nino34", "nino34"])
+      data.frame(se_type    = nm, horizon = h,
+                 irf_mean   = b,
+                 irf_up95   = b + 1.960 * se,
+                 irf_down95 = b - 1.960 * se,
+                 irf_up90   = b + 1.645 * se,
+                 irf_down90 = b - 1.645 * se)
+    }))
+  }))
+}
+
 export_se_robust_fish <- function(fishprice) {
-  run_lp_se_robust_price(fishprice,
-                         "logprice", "LocationSpecies", hor = 10) |>
+  run_lp_se_robust_fish_devcoded(fishprice, hor = 10) |>
     write.csv(file.path(out_data, "figA_irf_fishprice_serobust.csv"), row.names = FALSE)
   message("Exported figA_irf_fishprice_serobust.csv")
 }
@@ -266,7 +383,8 @@ export_allen_irf <- function() {
     ctrl_vec <- ctrl_dict[[nm]]
     ctrl_vec <- ctrl_vec[ctrl_vec %in% c("decade", avail)]
     ctrl_str <- paste(
-      ifelse(ctrl_vec == "decade", "i(decade)", ctrl_vec),
+      c(ifelse(ctrl_vec == "decade", "i(decade)", ctrl_vec),
+        "l(nino34, 1:3)"),
       collapse = " + "
     )
     tryCatch(
@@ -373,13 +491,14 @@ export_nino_check_price <- function(data) {
 
 
 ###############################################################################
-# Appendix: ENSO index robustness – fish prices (Cod only)
+# Appendix: ENSO index robustness – fish prices
+# Deviation-coded LP: bare `shock` = unweighted (Cod+Herring)/2 with native SE.
 ###############################################################################
 export_nino_check_fish <- function(fishprice) {
   nino_dict <- c("Nino1.2"="nino12","Nino3"="nino3","Nino3.4"="nino34","Nino4"="nino4")
   bind_rows(lapply(names(nino_dict), function(nm) {
-    run_lp_price(fishprice, "logprice", shock = nino_dict[[nm]],
-                 controls = "i(Decade)", entity = "LocationSpecies", hor = 10) |>
+    run_lp_fish_devcoded(fishprice, shock = nino_dict[[nm]],
+                          controls = "i(Decade)", hor = 10) |>
       transmute(index = nm, horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_fishprice_ninocheck.csv"), row.names = FALSE)
@@ -423,7 +542,10 @@ export_20y_prices <- function(data) {
 
 
 ###############################################################################
-# Appendix: LOO subsampling (fish prices – Cod only)
+# Appendix: LOO subsampling (fish prices)
+# Deviation-coded LP: bare `nino34` = unweighted (Cod+Herring)/2.
+# Dropping all-Cod or all-Herring subsamples falls back to a pooled fit
+# (single species => cod_dev is constant, the interaction is collinear).
 ###############################################################################
 export_loo_fish <- function(fishprice) {
   locations <- unique(fishprice$LocationSpecies)
@@ -431,10 +553,16 @@ export_loo_fish <- function(fishprice) {
 
   bind_rows(lapply(seq_along(combos), function(i) {
     left_out <- setdiff(locations, combos[[i]])
-    run_lp_price(fishprice |> filter(LocationSpecies %in% combos[[i]]),
-                 "logprice", controls = "i(Decade)",
-                 entity = "LocationSpecies", hor = 10) |>
-      transmute(subsample = paste("No", left_out), horizon, irf_mean, irf_up, irf_down)
+    sub <- fishprice |> filter(LocationSpecies %in% combos[[i]])
+    irf <- if (length(unique(sub$Species)) >= 2) {
+      run_lp_fish_devcoded(sub, controls = "i(Decade)", hor = 10)
+    } else {
+      run_lp_price(sub, "logprice", controls = "i(Decade)",
+                   entity = "LocationSpecies", hor = 10) |>
+        transmute(horizon, irf_mean, irf_up, irf_down)
+    }
+    irf |> transmute(subsample = paste("No", left_out),
+                     horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_subsample_fishprice.csv"), row.names = FALSE)
   message("Exported figA_irf_subsample_fishprice.csv")
@@ -442,17 +570,24 @@ export_loo_fish <- function(fishprice) {
 
 
 ###############################################################################
-# Appendix: 20-year block LOO (fish prices – Cod only)
+# Appendix: 20-year block LOO (fish prices)
+# Deviation-coded LP: bare `nino34` = unweighted (Cod+Herring)/2.
 ###############################################################################
 export_20y_fish <- function(fishprice) {
   years        <- sort(unique(fishprice$Year))
   block_starts <- seq(min(years), max(years) - 20, by = 20)
 
   bind_rows(lapply(block_starts, function(s) {
-    run_lp_price(fishprice |> filter(!Year %in% s:(s + 19)),
-                 "logprice", controls = "i(Decade)",
-                 entity = "LocationSpecies", hor = 10) |>
-      transmute(block = paste0("Drop ", s, "-", s + 19), horizon, irf_mean, irf_up, irf_down)
+    sub <- fishprice |> filter(!Year %in% s:(s + 19))
+    irf <- if (length(unique(sub$Species)) >= 2) {
+      run_lp_fish_devcoded(sub, controls = "i(Decade)", hor = 10)
+    } else {
+      run_lp_price(sub, "logprice", controls = "i(Decade)",
+                   entity = "LocationSpecies", hor = 10) |>
+        transmute(horizon, irf_mean, irf_up, irf_down)
+    }
+    irf |> transmute(block = paste0("Drop ", s, "-", s + 19),
+                     horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_subsample_20y_fishprice.csv"), row.names = FALSE)
   message("Exported figA_irf_subsample_20y_fishprice.csv")
@@ -510,7 +645,8 @@ export_bootstrap <- function(data, fishprice, n_iter = 500) {
   set.seed(42)
   plan(multisession)
 
-  run_boot <- function(df, endog, entity, tag) {
+  # Pooled bootstrap for grain prices
+  run_boot_pooled <- function(df, endog, entity, tag) {
     true_res <- run_lp_price(df, endog, controls = "i(Decade)",
                               entity = entity, hor = 10)
     true_res |>
@@ -530,8 +666,27 @@ export_bootstrap <- function(data, fishprice, n_iter = 500) {
     message("Exported bootstrap CSVs for ", tag)
   }
 
-  run_boot(data,                             "logprice", "Location",       "figA_irf_price_bootstrap")
-  run_boot(fishprice, "logprice", "LocationSpecies", "figA_irf_fishprice_bootstrap")
+  # Dev-coded bootstrap for fish prices: bare `nino34` = (Cod+Herring)/2
+  run_boot_fish_dev <- function(df, tag) {
+    true_res <- run_lp_fish_devcoded(df, controls = "i(Decade)", hor = 10)
+    true_res |>
+      transmute(horizon, irf_mean) |>
+      write.csv(file.path(out_data, paste0(tag, "_true.csv")), row.names = FALSE)
+
+    future_map_dfr(seq_len(n_iter), function(i) {
+      sh <- df |> mutate(nino34 = sample(nino34))
+      tryCatch({
+        run_lp_fish_devcoded(sh, controls = "i(Decade)", hor = 10) |>
+          transmute(iter = i, horizon, irf_mean)
+      }, error = function(e) NULL)
+    }, .options = furrr_options(seed = TRUE)) |>
+      write.csv(file.path(out_data, paste0(tag, "_null.csv")), row.names = FALSE)
+
+    message("Exported bootstrap CSVs for ", tag)
+  }
+
+  run_boot_pooled(data, "logprice", "Location", "figA_irf_price_bootstrap")
+  run_boot_fish_dev(fishprice,                 "figA_irf_fishprice_bootstrap")
 }
 
 
