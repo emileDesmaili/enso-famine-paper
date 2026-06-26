@@ -194,8 +194,9 @@ shocks <- tribble(
   "JSL",      "JSL",   "nino34 + NAO_cal"
 ) %>%
   mutate(
-    controls_full = glue("{excl}"),
-    controls_base = "1"
+    # Add 3 lags of the shock to both specifications
+    controls_full = glue("{excl} + l({var}, 1:3)"),
+    controls_base = glue("l({var}, 1:3)")
   )
 
 ## Scale predictors to 1 SD so coefficients represent a 1-SD shock
@@ -306,7 +307,7 @@ panel_c <- ggplot(coef_df, aes(Region, estimate, colour = Index, shape = Index))
   scale_shape_manual(values  = c(ENSO = 16, NAO = 17, JSL = 15)) +
   labs(
     x = NULL,
-    y = "ENSO Effect on Famine Prob."
+    y = "Effect on Famine Prob. per SD"
   ) +
   nature_theme() +
   #make x axis text bigger

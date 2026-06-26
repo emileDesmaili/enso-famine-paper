@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python analysis/07_ml_onset_survival.py)",
+      "Bash(Rscript -e ' *)",
+      "Read(//c/Program Files/R//**)",
+      "Bash(\"/c/Program Files/R/R-4.5.1/bin/Rscript.exe\" _tmp_coef.R)",
+      "Bash(\"/c/Program Files/R/R-4.5.1/bin/Rscript.exe\" _tmp_run_onset_probs.R)"
+    ]
+  }
+}

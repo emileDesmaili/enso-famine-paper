@@ -68,7 +68,7 @@ def _build_enso_df() -> pd.DataFrame:
     em      = em.merge(lat_lon, on="gridpoint")
 
     enso_xr = em.set_index(["Year", "lat", "lon"])["enso"].to_xarray()
-    enso_xr = enso_xr - enso_xr.rolling(Year=50, min_periods=1).mean()
+    enso_xr = enso_xr - enso_xr.sel(Year=slice(1801, 1900)).mean(dim="Year")
 
     nino3  = enso_xr.sel(lat=slice(-5, 5),  lon=slice(-150, -90)).mean(dim=["lat", "lon"])
     nino34 = enso_xr.sel(lat=slice(-5, 5),  lon=slice(-170, -120)).mean(dim=["lat", "lon"])

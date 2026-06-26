@@ -122,9 +122,10 @@ save_price_tables <- function() {
 # 2. GRAIN YIELDS – summary + FE-DL
 # ══════════════════════════════════════════════════════════════════════════════
 save_yield_tables <- function() {
-  yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_2025.csv")) %>%
-    mutate(decade = floor(Year / 10) * 10) %>%
-    dplyr::select(VarLocationGrain, Year, decade, everything())
+  yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) %>%
+    mutate(decade = floor(Year / 10) * 10,
+           Year2  = Year^2) %>%
+    dplyr::select(VarLocationGrain, Year, decade, Year2, everything())
 
   TI_2023 <- yield_2023 %>%
     filter(Type == "TI") %>%
@@ -333,7 +334,7 @@ save_granger_table <- function() {
   data      <- read.csv(file.path(DATA_PROC, "price_2023_enso.csv")) %>%
     mutate(Decade = floor(Year / 10) * 10) %>% drop_na() %>% distinct()
   fishprice <- read.csv(file.path(DATA_PROC, "fishprice_enso.csv")) %>% drop_na()
-  yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_2025.csv")) %>%
+  yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) %>%
     filter(Grain %in% c("Wheat", "Rye"))
 
   # Annual averages for panel Granger tests

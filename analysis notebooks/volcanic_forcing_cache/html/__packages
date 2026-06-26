@@ -1,0 +1,11 @@
+rmarkdown
+dplyr
+tidyr
+ggplot2
+patchwork
+fixest
+readxl
+purrr
+broom
+scales
+stringr

@@ -166,6 +166,44 @@ save_onset_table <- function(data) {
 
 
 ###############################################################################
+# Famine onset probability: without ENSO vs 1°C ENSO, by region
+###############################################################################
+export_onset_probs <- function(data) {
+  # Column 2 of ED Table 1: LPM with Decade + Region FE, no controls
+  lpm <- feols(
+    Famine_start ~ nino34:Region + i(Decade) | Region,
+    data = data, vcov = DK ~ Year,
+    panel.id = c("Region", "Year")
+  )
+
+  # Logit analogue of column 2 spec
+  logit_m <- feglm(
+    Famine_start ~ nino34:Region + i(Decade) | Region,
+    data = data, panel.id = c("Region", "Year"), family = "logit"
+  )
+
+  regions <- sort(unique(data$Region))
+
+  results <- lapply(regions, function(r) {
+    d0 <- data[data$Region == r, ]; d0$nino34 <- 0
+    d1 <- data[data$Region == r, ]; d1$nino34 <- 1
+
+    data.frame(
+      region                 = r,
+      lpm_prob_no_enso_pct   = round(mean(predict(lpm,     d0), na.rm = TRUE) * 100, 2),
+      lpm_prob_1c_enso_pct   = round(mean(predict(lpm,     d1), na.rm = TRUE) * 100, 2),
+      logit_prob_no_enso_pct = round(mean(predict(logit_m, d0), na.rm = TRUE) * 100, 2),
+      logit_prob_1c_enso_pct = round(mean(predict(logit_m, d1), na.rm = TRUE) * 100, 2)
+    )
+  })
+
+  out <- do.call(rbind, results)
+  write.csv(out, file.path(out_data, "fig2_onset_probs_by_region.csv"), row.names = FALSE)
+  message("Exported fig2_onset_probs_by_region.csv")
+}
+
+
+###############################################################################
 # Appendix: LOO sensitivity (exported as CSV for Python if desired)
 ###############################################################################
 export_loo_onset <- function(data) {
@@ -284,6 +322,7 @@ if (!interactive()) {
   export_fig2A(data)
   export_fig2B(data)
   save_onset_table(data)
+  export_onset_probs(data)
   export_loo_onset(data)
   export_permutation_onset(data, n_iter = 1000)
   plot_loo_onset()

@@ -180,16 +180,39 @@ def _draw_1A(ax, data):
     spans = [
         (1590, 1600, "red",    0.25, "1590s/1690s Catastrophic Famines"),
         (1690, 1700, "red",    0.25, "_"),
-        (1635, 1637, "blue",   0.85, "Famine in Central Europe"),
-        (1648, 1652, "gray",   0.45, "Europe-wide Famine"),
-        (1788, 1793, "orange", 0.30, "1788–1793 El Niño"),
     ]
     for x0, x1, c, a, lbl in spans:
         ax.axvspan(x0, x1, color=c, alpha=a, label=lbl)
 
-    top7 = enso.nlargest(7, "nino34").iloc[:6]
-    ax.scatter(top7["Year"], top7["nino34"],
-               color="red", edgecolor="black", s=60, zorder=5)
+    # Shade all Central Europe famine onset years with a single legend entry
+    ce = data[data["Region"] == "Central Europe"]
+    ce_onsets = sorted(ce[ce["Famine_start"] == 1]["Year"].unique())
+    _shaded = False
+    for yr in ce_onsets:
+        lbl = "Famine in Central Europe" if not _shaded else "_"
+        ax.axvspan(yr - 0.5, yr + 0.5, color="#4a90d9", alpha=0.35, label=lbl)
+        _shaded = True
+
+    # Shade contiguous spans where ≥6 regions were simultaneously in famine
+    famine_count = data[data["Famine"] == 1].groupby("Year")["Region"].nunique()
+    multi_years = sorted(famine_count[famine_count >= 6].index)
+    _multi_shaded = False
+    if multi_years:
+        span_start = multi_years[0]
+        prev = multi_years[0]
+        for yr in multi_years[1:]:
+            if yr > prev + 1:
+                lbl = "Europe-wide Famine" if not _multi_shaded else "_"
+                ax.axvspan(span_start, prev + 1, color="#7b2d8b", alpha=0.30, label=lbl)
+                _multi_shaded = True
+                span_start = yr
+            prev = yr
+        lbl = "Europe-wide Famine" if not _multi_shaded else "_"
+        ax.axvspan(span_start, prev + 1, color="#7b2d8b", alpha=0.30, label=lbl)
+
+    el_nino = enso[enso["nino34"] > 1.0]
+    ax.scatter(el_nino["Year"], el_nino["nino34"],
+               color="red", edgecolor="black", s=60, zorder=5, label="ENSO > 1°C")
 
     ax.set_xlabel("Year")
     ax.set_ylabel("NINO3.4 (°C)")
@@ -666,27 +689,18 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     cb.set_label("Pearson r", fontsize=FS - 2)
     ax.set_title(title, fontsize=FS, fontweight="bold", loc="left")
 
-    # Central Europe region outline
-    import cartopy.io.shapereader as shpreader
-    import geopandas as gpd
-    from shapely.ops import unary_union
-    _CE_COUNTRIES = {
-        "Switzerland", "Germany", "Austria", "Czechia",
-        "Hungary", "Slovenia", "Bosnia and Herz.",
-        "Slovakia", "Croatia", "Serbia", "Poland",
-    }
-    _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
-                                       name="admin_0_countries")
-    _gdf = gpd.read_file(_ne_path)
-    _ce_geom = unary_union(_gdf[_gdf["NAME"].isin(_CE_COUNTRIES)]["geometry"].values)
-    ax.add_geometries(
-        [_ce_geom], crs=ccrs.PlateCarree(),
-        facecolor="none", edgecolor="red", linewidth=4.0, zorder=10
+    # Central Europe region outline – Switzerland (6°E, 47°N) to 25°E, just below Denmark (~55°N)
+    ax.add_patch(
+        Rectangle(
+            xy=(7, 43), width=25 - 7, height=53 - 43,
+            transform=ccrs.PlateCarree(),
+            facecolor="none", edgecolor="red", linewidth=4.5, zorder=10
+        )
     )
 
     # Yield record locations – purple = teleconnected (PDSI p<0.10), white = not
     import pandas as _pd
-    _yield = _pd.read_csv(DATA_PROC / "yield_ljungqvist_2025.csv")
+    _yield = _pd.read_csv(DATA_PROC / "yield_ljungqvist_v2.csv")
     _ylocs = (
         _yield.groupby(["lat", "lon"])
         .agg(teleco=("teleco_PDSI_10", "max"))
@@ -723,7 +737,7 @@ def _compute_teleconnections():
     em["gridpoint"] = em["gridpoint"].astype(int)
     em      = em.merge(lat_lon, on="gridpoint")
     enso_xr = em.set_index(["Year", "lat", "lon"])["enso"].to_xarray()
-    enso_xr = enso_xr - enso_xr.rolling(Year=50, min_periods=1).mean()
+    enso_xr = enso_xr - enso_xr.sel(Year=slice(1801, 1900)).mean(dim="Year")
     nino34  = enso_xr.sel(lat=slice(-5, 5), lon=slice(-170, -120)).mean(dim=["lat", "lon"])
     nino_df = nino34.to_dataframe().reset_index().rename(columns={"enso": "nino34"})
     nino_df = nino_df[nino_df["Year"] <= 1800]
@@ -865,22 +879,13 @@ def _draw_pdsi_composite_map(ax):
     ax.add_feature(cfeature.OCEAN, facecolor="aliceblue", zorder=0)
     ax.set_extent([-12, 36, 35, 71], crs=ccrs.PlateCarree())
 
-    # Central Europe region outline
-    import cartopy.io.shapereader as shpreader
-    import geopandas as gpd
-    from shapely.ops import unary_union
-    _CE_COUNTRIES = {
-        "Switzerland", "Germany", "Austria", "Czechia",
-        "Hungary", "Slovenia", "Bosnia and Herz.",
-        "Slovakia", "Croatia", "Serbia", "Poland",
-    }
-    _ne_path = shpreader.natural_earth(resolution="10m", category="cultural",
-                                       name="admin_0_countries")
-    _gdf = gpd.read_file(_ne_path)
-    _ce_geom = unary_union(_gdf[_gdf["NAME"].isin(_CE_COUNTRIES)]["geometry"].values)
-    ax.add_geometries(
-        [_ce_geom], crs=ccrs.PlateCarree(),
-        facecolor="none", edgecolor="red", linewidth=4.0, zorder=10
+    # Central Europe region outline – Switzerland (6°E, 47°N) to 25°E, just below Denmark (~55°N)
+    ax.add_patch(
+        Rectangle(
+            xy=(7, 43), width=25 - 7, height=53 - 43,
+            transform=ccrs.PlateCarree(),
+            facecolor="none", edgecolor="red", linewidth=4.5, zorder=10
+        )
     )
 
     gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
@@ -897,7 +902,7 @@ def _draw_pdsi_composite_map(ax):
     cb.ax.tick_params(labelsize=FS - 3)
     cb.set_label(r"$\Delta$scPDSI", fontsize=FS - 2)
     n = len(matched)
-    ax.set_title(f"PDSI anomaly – ENSO Famines (n={n})",
+    ax.set_title(f"scPDSI anomaly – ENSO Famines (n={n})",
                  fontsize=FS, fontweight="bold", loc="left")
 
 
@@ -919,7 +924,7 @@ def make_fig3():
     ax_a = fig.add_subplot(gs[0, 0], projection=proj)
     if corr_pdsi is not None:
         _draw_teleco_map(ax_a, corr_pdsi, p_pdsi, lat2d_p, lon2d_p,
-                         "ENSO / PDSI correlation", "BrBG")
+                         "ENSO / scPDSI correlation", "BrBG")
     else:
         ax_a.text(0.5, 0.5, "Data not found", transform=ax_a.transAxes,
                   ha="center", va="center")
@@ -933,7 +938,7 @@ def make_fig3():
     # C – Wheat/Rye IRF (points + whiskers)
     ax_c = fig.add_subplot(gs[1, 0])
     _draw_irf_errorbar(ax_c, df_c, "label", "% Harvest response",
-                       ylim=(-0.13, 0.06), add_legend=False)
+                       ylim=(-0.13, 0.10), add_legend=False)
     ax_c.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
                 ncol=2, frameon=False, fontsize=FS)
     _title(ax_c, "Wheat & rye response")
@@ -942,7 +947,7 @@ def make_fig3():
     # D – Other grain IRF (points + whiskers)
     ax_d = fig.add_subplot(gs[1, 1])
     _draw_irf_errorbar(ax_d, df_d, "label", "% Harvest response",
-                       ylim=(-0.13, 0.06), add_legend=False)
+                       ylim=(-0.13, 0.10), add_legend=False)
     ax_d.legend(loc="upper center", bbox_to_anchor=(0.5, 1.32),
                 ncol=2, frameon=False, fontsize=FS)
     _title(ax_d, "Other grains response")

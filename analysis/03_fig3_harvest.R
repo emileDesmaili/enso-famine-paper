@@ -102,24 +102,106 @@ load_yields <- function() {
     dplyr::select(VarLocationGrain, Year, decade, everything())
 }
 
+# ── v2 data + GT#3 spec (cubic record trend, lagged ENSO, raw logyield).
+#    Used for appendix SI figures. β reads directly as % harvest.
+load_yields_GT3 <- function() {
+  read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) |>
+    mutate(decade = floor(Year / 10) * 10,
+           Year2  = Year^2,
+           Year3  = Year^3) |>
+    dplyr::select(VarLocationGrain, Year, decade, Year2, Year3, everything())
+}
+
+FE_GT3 <- "VarLocationGrain[Year]"   # linear record trend (GT cell #4)
+
+run_lp_GT3 <- function(df, endog = "logyield", shock = "nino34",
+                       extra_controls = NULL, hor = 3) {
+  ctrl <- c("i(decade)", paste0("l(", shock, ", 1:3)"))
+  if (!is.null(extra_controls) && length(extra_controls) > 0)
+    ctrl <- c(ctrl, extra_controls)
+  lp_panel(
+    data         = df,
+    outcome      = endog,
+    main_var     = shock,
+    controls     = paste(ctrl, collapse = " + "),
+    horizon      = hor,
+    fe           = FE_GT3,
+    panel_id     = c("VarLocationGrain", "Year"),
+    vcov_formula = DK ~ Year
+  )
+}
+
+# Interaction LP — both teleco categories estimated jointly on full sample.
+run_lp_GT3_inter <- function(df, endog = "logyield", shock = "nino34",
+                              extra_controls = NULL, hor = 3,
+                              interact_var = "teleco_PDSI_10") {
+  ctrl <- c("i(decade)", paste0("l(", shock, ", 1:3)"))
+  if (!is.null(extra_controls) && length(extra_controls) > 0)
+    ctrl <- c(ctrl, extra_controls)
+  lp_panel_inter(
+    data         = df,
+    outcome      = endog,
+    main_var     = shock,
+    interact_var = interact_var,
+    controls     = paste(ctrl, collapse = " + "),
+    horizon      = hor,
+    fe           = FE_GT3,
+    panel_id     = c("VarLocationGrain", "Year"),
+    vcov_formula = DK ~ Year
+  )
+}
+
+# Gold-ticket #4 partition: pooled "All regions" + interaction split by teleco
+# + "Teleco w. controls" (interaction + extra controls).
+irf_teleco_loop_GT3 <- function(df, endog = "logyield", hor_max = 3,
+                                 teleco_col = "teleco_PDSI_10",
+                                 controls_full = c("JSL", "NAO_cal",
+                                                   "ongoing_wars", "Deaths")) {
+  res_all <- run_lp_GT3(df, endog, hor = hor_max)
+  out_all <- extract_irf(res_all, "All regions",
+                          dplyr::n_distinct(df$VarLocationGrain))
+
+  res_int <- run_lp_GT3_inter(df, endog, hor = hor_max,
+                                interact_var = teleco_col)
+  n0 <- dplyr::n_distinct(df$VarLocationGrain[df[[teleco_col]] == 0])
+  n1 <- dplyr::n_distinct(df$VarLocationGrain[df[[teleco_col]] == 1])
+  out_w <- res_int |> filter(category == "0") |>
+    transmute(label = "Weakly affected", n_loc = n0,
+              horizon, irf_mean, irf_up, irf_down)
+  out_t <- res_int |> filter(category == "1") |>
+    transmute(label = "Teleconnected", n_loc = n1,
+              horizon, irf_mean, irf_up, irf_down)
+
+  res_int_c <- run_lp_GT3_inter(df, endog,
+                                  extra_controls = controls_full,
+                                  hor = hor_max,
+                                  interact_var = teleco_col)
+  out_tc <- res_int_c |> filter(category == "1") |>
+    transmute(label = "Teleco w. controls", n_loc = n1,
+              horizon, irf_mean, irf_up, irf_down)
+
+  bind_rows(out_all, out_w, out_t, out_tc)
+}
+
 
 ###############################################################################
-# Fig 3C – Wheat/Rye harvest IRF
+# Fig 3C – Wheat/Rye harvest IRF (gold-ticket #4: linear record trend,
+# interaction with teleco_PDSI_10, 3 ENSO lags, v2 panel via load_yields_GT3)
 ###############################################################################
 export_fig3C <- function(yield_2023) {
-  WR <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
-  irf_teleco_loop(WR, "logyield", 3) |>
+  WR <- load_yields_GT3() |> filter(Grain %in% c("Wheat", "Rye"))
+  irf_teleco_loop_GT3(WR, "logyield", 3) |>
     write.csv(file.path(out_data, "fig3C_irf_yield_WR.csv"), row.names = FALSE)
   message("Exported fig3C_irf_yield_WR.csv")
 }
 
 
 ###############################################################################
-# Fig 3D – Other grain harvest IRF
+# Fig 3D – Other grain harvest IRF (gold-ticket #4 spec, same as fig 3C)
 ###############################################################################
 export_fig3D <- function(yield_2023) {
-  noWR <- yield_2023 |> filter(!Grain %in% c("Wheat", "Rye"))
-  irf_teleco_loop(noWR, "logyield", 3) |>
+  noWR <- load_yields_GT3() |> filter(!Grain %in% c("Wheat", "Rye"))
+  irf_teleco_loop_GT3(noWR, "logyield", 3) |>
     write.csv(file.path(out_data, "fig3D_irf_yield_noWR.csv"), row.names = FALSE)
   message("Exported fig3D_irf_yield_noWR.csv")
 }
@@ -136,10 +218,11 @@ export_fig3D <- function(yield_2023) {
 #
 # Per-horizon model fitted with feols(), then vcov swapped per SE type.
 run_lp_se_robust <- function(df, endog, shock = "nino34",
-                              controls = "i(decade)", hor = 3,
+                              controls = "i(decade) + l(nino34, 1:3)",
+                              hor = 3,
                               lat_col = "Latitude", lon_col = "Longitude") {
   fml_rhs <- paste0(shock, " + ", controls)
-  fe_str  <- "VarLocationGrain"
+  fe_str  <- "VarLocationGrain[Year]"   # linear trend (GT#4)
   pid     <- c("VarLocationGrain", "Year")
 
   bind_rows(lapply(0:hor, function(h) {
@@ -180,7 +263,9 @@ run_lp_se_robust <- function(df, endog, shock = "nino34",
 }
 
 export_se_robust_WR <- function(yield_2023) {
-  WR <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  # Appendix uses v2 + gold-ticket #3 spec
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
   run_lp_se_robust(WR, "logyield", hor = 3) |>
     write.csv(file.path(out_data, "figA_irf_WR_serobust.csv"), row.names = FALSE)
   message("Exported figA_irf_WR_serobust.csv")
@@ -242,14 +327,15 @@ export_yield63_irf <- function() {
 # Appendix: LOO subsampling (WR)
 ###############################################################################
 export_loo_WR <- function(yield_2023) {
-  WR        <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
   locations <- unique(WR$loc_id)
   combos    <- combn(locations, length(locations) - 1, simplify = FALSE)
 
   bind_rows(lapply(seq_along(combos), function(i) {
     left_out <- setdiff(locations, combos[[i]])
-    run_lp(WR |> filter(loc_id %in% combos[[i]]),
-           "logyield", controls = "decade", hor = 3) |>
+    run_lp_GT3(WR |> filter(loc_id %in% combos[[i]]),
+               "logyield", hor = 3) |>
       transmute(subsample = paste("No", left_out), horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_subsample_WR.csv"), row.names = FALSE)
@@ -261,14 +347,15 @@ export_loo_WR <- function(yield_2023) {
 # Appendix: 20-year block LOO (WR)
 ###############################################################################
 export_20y_WR <- function(yield_2023) {
-  WR           <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
   years        <- sort(unique(WR$Year))
   block_starts <- seq(min(years), max(years) - 20, by = 20)
 
   bind_rows(lapply(block_starts, function(bs) {
     block_yrs <- bs:(bs + 19)
-    run_lp(WR |> filter(!Year %in% block_yrs),
-           "logyield", controls = "decade", hor = 3) |>
+    run_lp_GT3(WR |> filter(!Year %in% block_yrs),
+               "logyield", hor = 3) |>
       transmute(block = paste(bs, bs + 19, sep = "-"), horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_20y_WR.csv"), row.names = FALSE)
@@ -280,11 +367,12 @@ export_20y_WR <- function(yield_2023) {
 # Appendix: ENSO index robustness (WR)
 ###############################################################################
 export_WR_ninocheck <- function(yield_2023) {
-  WR    <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
   ninos <- c("nino34", "nino3", "nino4", "nino12")
   bind_rows(lapply(ninos, function(ni) {
     if (!ni %in% names(WR)) return(NULL)
-    run_lp(WR, "logyield", shock = ni, controls = "decade", hor = 3) |>
+    run_lp_GT3(WR, "logyield", shock = ni, hor = 3) |>
       transmute(index = ni, horizon, irf_mean, irf_up, irf_down)
   })) |>
     write.csv(file.path(out_data, "figA_irf_WR_ninocheck.csv"), row.names = FALSE)
@@ -298,13 +386,13 @@ export_WR_ninocheck <- function(yield_2023) {
 export_bootstrap_WR <- function(yield_2023, n_iter = 1000) {
   set.seed(42)
   plan(multisession)
-  WR <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
-  true_res <- run_lp(WR, "logyield", controls = "decade", hor = 3)
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
+  true_res <- run_lp_GT3(WR, "logyield", hor = 3)
 
   null_list <- future_map(seq_len(n_iter), function(i) {
     df_sh <- WR |> mutate(nino34 = sample(nino34))
-    res   <- try(run_lp(df_sh, "logyield", controls = "decade", hor = 3),
-                 silent = TRUE)
+    res   <- try(run_lp_GT3(df_sh, "logyield", hor = 3), silent = TRUE)
     if (inherits(res, "try-error")) return(NULL)
     res |> transmute(iter = i, horizon, irf_mean)
   }, .progress = TRUE) |>
@@ -324,15 +412,19 @@ export_bootstrap_WR <- function(yield_2023, n_iter = 1000) {
 ###############################################################################
 # Appendix: Yield IRF under different teleconnection partitions
 # Reproduces: IRF_ENSO_yield_WR_teleco, IRF_ENSO_yield_noWR_teleco,
-#             figA_irf_yield_WR_AMJJ_P, figA_irf_yield_NDJF_P, figA_irf_yield_NDJF_T
+#             figA_irf_yield_WR_AMJJ_P, figA_irf_yield_NDJF_P,
+#             figA_irf_yield_NDJF_T, figA_irf_yield_AMJJ_T
 ###############################################################################
 export_yield_teleco_plots <- function(yield_2023) {
-  WR   <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
-  noWR <- yield_2023 |> filter(!Grain %in% c("Wheat", "Rye"))
+  yields_GT3 <- load_yields_GT3()
+  WR   <- yields_GT3 |>
+    filter(Grain %in% c("Wheat", "Rye"))
+  noWR <- yields_GT3 |>
+    filter(!Grain %in% c("Wheat", "Rye"))
 
   plot_teleco <- function(df, teleco_col, title_lab, file_name) {
-    df_irf <- irf_teleco_loop(df, "logyield", hor_max = 3,
-                               teleco_col = teleco_col)
+    df_irf <- irf_teleco_loop_GT3(df, "logyield", hor_max = 3,
+                                   teleco_col = teleco_col)
     n_ctrl  <- length(unique(df_irf$label))
     offsets <- seq(-0.12, 0.12, length.out = n_ctrl)
     df_irf  <- df_irf |>
@@ -393,6 +485,13 @@ export_yield_teleco_plots <- function(yield_2023) {
                 "% Harvest response\n(NDJF Temp. partition)",
                 "figA_irf_yield_NDJF_T.pdf")
   }
+
+  # Summer temperature (AMJJ) partition
+  if ("teleco_temp_summer_10" %in% names(yield_2023)) {
+    plot_teleco(WR, "teleco_temp_summer_10",
+                "% Harvest response\n(AMJJ Temp. partition)",
+                "figA_irf_yield_AMJJ_T.pdf")
+  }
 }
 
 
@@ -401,26 +500,34 @@ export_yield_teleco_plots <- function(yield_2023) {
 ###############################################################################
 save_yield_table <- function(yield_2023) {
   suppressPackageStartupMessages(library(modelsummary))
-  WR <- yield_2023 |> filter(Grain %in% c("Wheat", "Rye"))
+  # v2 yield panel with raw logyield outcome.
+  # Quadratic per-record time trend in the FE replaces Year:Location.
+  WR <- load_yields_GT3() |>
+    filter(Grain %in% c("Wheat", "Rye"))
+  fe_spec  <- "VarLocationGrain[Year, Year2, Year3]"
+  pid_spec <- c("VarLocationGrain", "Year")
 
-  est1 <- feols(logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) +
-                  i(decade) | VarLocationGrain,
-                data = WR, panel.id = ~ VarLocationGrain + Year)
-  est2 <- feols(logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) +
+  est1 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+                  i(decade) | VarLocationGrain[Year],
+                data = WR, panel.id = pid_spec)
+  est2 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
                   i(decade) + PDSI + temp_summer + temp_winter +
-                  precip_summer + precip_winter | VarLocationGrain,
-                data = WR, panel.id = c("VarLocationGrain", "Year"))
-  est3 <- feols(logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) +
-                  i(decade) + ongoing_wars + log(1 + Deaths) | VarLocationGrain,
-                data = WR, panel.id = c("VarLocationGrain", "Year"))
-  est4 <- feols(logyield ~ Year:LocationGrain + l(nino34, 0:3):i(teleco_PDSI_10) +
+                  precip_summer + precip_winter |
+                  VarLocationGrain[Year],
+                data = WR, panel.id = pid_spec)
+  est3 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+                  i(decade) + ongoing_wars + log(1 + Deaths) |
+                  VarLocationGrain[Year],
+                data = WR, panel.id = pid_spec)
+  est4 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
                   i(decade) + ongoing_wars + log(1 + Deaths) +
                   temp_summer + temp_winter + precip_summer + precip_winter |
-                  VarLocationGrain,
-                data = WR, panel.id = c("VarLocationGrain", "Year"))
+                  VarLocationGrain[Year],
+                data = WR, panel.id = pid_spec)
 
   dict_yield <- c(
     "nino34"         = "NINO3.4 T",
+    "l(nino34, 0)"   = "NINO3.4 T",
     "l(nino34, 1)"   = "NINO3.4 T-1",
     "l(nino34, 2)"   = "NINO3.4 T-2",
     "l(nino34, 3)"   = "NINO3.4 T-3",
@@ -437,7 +544,7 @@ save_yield_table <- function(yield_2023) {
     dict         = dict_yield,
     label        = "tab:FE_ENSO_yieldPDSI",
     title        = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Wheat and Rye Grain Harvests.",
-    drop.section = "fixef",
+    drop.section = c("fixef", "slopes"),
     fitstat      = c("n", "r2"),
     extralines   = list(
       "Decade FE"                = c("Yes","Yes","Yes","Yes"),
@@ -544,9 +651,16 @@ plot_yield63 <- function() {
          y = "% Harvest response",
          color = "Controls") +
     theme_classic(base_size = 18) +
-    theme(panel.grid = element_blank(), legend.position = "bottom")
+    theme(panel.grid = element_blank(),
+          legend.position  = "bottom",
+          legend.box       = "horizontal",
+          legend.text      = element_text(size = 11),
+          legend.title     = element_text(size = 11),
+          plot.margin      = margin(5, 5, 5, 5)) +
+    guides(color = guide_legend(nrow = 2, byrow = TRUE,
+                                title.position = "top"))
   ggsave(file.path(fig_out, "figA_irf_yield63.pdf"), p,
-         width = 6, height = 5, device = cairo_pdf)
+         width = 8, height = 6, device = cairo_pdf)
   message("Saved figA_irf_yield63.pdf")
 }
 
@@ -615,21 +729,26 @@ export_irf_geo_partition <- function(yield_2023) {
   # (mirrors the famine-onset "Central Europe" region)
   ce_countries <- c("Germany", "Switzerland", "Hungary", "Austria")
 
+  safe_irf <- function(df, endog, hor_max, label) {
+    if (nrow(df) < 50 || dplyr::n_distinct(df$VarLocationGrain) < 1)
+      return(NULL)
+    extract_irf(run_lp_GT3(df, endog, hor = hor_max), label)
+  }
   run_geo_irf <- function(df, endog, hor_max) {
     df_ce   <- df |> filter( Country %in% ce_countries)
     df_rest <- df |> filter(!Country %in% ce_countries)
-    lbl_all  <- "All regions"
-    lbl_ce   <- "Central Europe"
-    lbl_rest <- "Rest of Europe"
     bind_rows(
-      extract_irf(run_lp(df,      endog, controls = "decade", hor = hor_max), lbl_all),
-      extract_irf(run_lp(df_ce,   endog, controls = "decade", hor = hor_max), lbl_ce),
-      extract_irf(run_lp(df_rest, endog, controls = "decade", hor = hor_max), lbl_rest)
+      safe_irf(df,      endog, hor_max, "All regions"),
+      safe_irf(df_ce,   endog, hor_max, "Central Europe"),
+      safe_irf(df_rest, endog, hor_max, "Rest of Europe")
     )
   }
 
-  WR   <- yield_2023 |> filter( Grain %in% c("Wheat", "Rye"))
-  noWR <- yield_2023 |> filter(!Grain %in% c("Wheat", "Rye"))
+  yields_GT3 <- load_yields_GT3()
+  WR   <- yields_GT3 |>
+    filter(Grain %in% c("Wheat", "Rye"))
+  noWR <- yields_GT3 |>
+    filter(!Grain %in% c("Wheat", "Rye"))
 
   irf_wr   <- run_geo_irf(WR,   "logyield", 3)
   irf_nowr <- run_geo_irf(noWR, "logyield", 3)
@@ -640,14 +759,10 @@ export_irf_geo_partition <- function(yield_2023) {
     offsets <- setNames(seq(-0.12, 0.12, length.out = n_g), groups)
     df      <- df |> dplyr::mutate(offset = offsets[label])
     # build color mapping: match labels by prefix
-    clr <- setNames(
-      c("black", "firebrick", "cornflowerblue"),
-      groups[c(
-        grep("All",     groups),
-        grep("Central", groups),
-        grep("Rest",    groups)
-      )]
-    )
+    clr <- c("All regions"    = "black",
+             "Central Europe" = "firebrick",
+             "Rest of Europe" = "cornflowerblue")
+    clr <- clr[names(clr) %in% groups]
     ggplot(df, aes(x = horizon + offset, y = irf_mean, color = label)) +
       geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
       geom_errorbar(aes(ymin = irf_down, ymax = irf_up), width = 0, linewidth = 0.9) +

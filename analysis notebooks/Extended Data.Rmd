@@ -58,22 +58,33 @@ fishprice <- read.csv('../processed data/fishprice_enso.csv') %>%
   #create a logprice_diff variable
   arrange(LocationSpecies, Year) %>%
   group_by(LocationSpecies) %>%
-  mutate(logprice_diff = logprice - lag(logprice)) %>% 
+  mutate(logprice_diff = logprice - dplyr::lag(logprice)) %>% 
   ungroup() 
 
 price <- read.csv('../processed data/price_2023_enso.csv')
 #put Location and Year as first columns
-price <- price %>% 
-    mutate(Decade = floor(Year / 10) * 10) %>% 
-    dplyr::select(Location,Year,Decade, everything()) %>% 
-  drop_na() %>% 
-  distinct() %>% 
-  arrange(Location, Year) %>% 
+price <- price %>%
+    mutate(Decade = floor(Year / 10) * 10) %>%
+    dplyr::select(Location,Year,Decade, everything()) %>%
+  drop_na() %>%
+  distinct() %>%
+  arrange(Location, Year) %>%
   group_by(Location) %>%
-  mutate(logprice_diff = logprice - lag(logprice)) %>%
+  mutate(logprice_diff = logprice - dplyr::lag(logprice)) %>%
   ungroup()
 
+yield_2023 <- read.csv('../processed data/yield_ljungqvist_2025.csv') %>%
+  mutate(decade = floor(Year / 10) * 10) %>%
+  dplyr::select(VarLocationGrain, Year, decade, everything()) %>%
+  mutate(dy = logyield - lag(logyield))
 
+# v2 yield panel with raw logyield (cubic record trend in the FE clause
+# replaces the per-record SD normalisation; β reads as % harvest).
+yield_v2_GT3 <- read.csv('../processed data/yield_ljungqvist_v2.csv') %>%
+  mutate(decade = floor(Year / 10) * 10,
+         Year2  = Year^2,
+         Year3  = Year^3) %>%
+  filter(!is.na(yield), yield > 0)
 
 
 ```
@@ -211,31 +222,175 @@ ggsave("../figures/plots/nonlinearity_onset.pdf", device = cairo_pdf)
 ```
 
 
+## Non-linearity: 4 outcomes, linear (+ CI) vs quadratic vs cubic (estimates only)
+
+```{r nonlin-4panel, fig.width=8, fig.height=6}
+
+# ── predict_poly wrapper ────────────────────────────────────────────────────
+pp <- function(m) useful::predict_poly(m, "nino34",
+                                       min = -1, max = 1.5, ref = 0,
+                                       step.length = 0.01, xvar_name = "nino34")
+
+# ── Generic panel builder ───────────────────────────────────────────────────
+# CI ribbon for linear only; quadratic/cubic: line only
+# title uses plotmath for small-caps label prefix via expression()
+make_panel <- function(lin, p2, p3, y_lab, tag) {
+  spec_col <- c("Linear" = "#4477AA", "Quadratic" = "tomato", "Cubic" = "orange")
+
+  df_lin <- lin %>% mutate(spec = "Linear")
+  df_p2  <- p2  %>% mutate(spec = "Quadratic")
+  df_p3  <- p3  %>% mutate(spec = "Cubic")
+
+  ggplot() +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_ribbon(data = df_lin,
+                aes(x = nino34, ymin = lower, ymax = upper),
+                fill = spec_col["Linear"], alpha = 0.2) +
+    geom_line(data = bind_rows(df_lin, df_p2, df_p3),
+              aes(x = nino34, y = response, colour = spec), linewidth = 0.9) +
+    scale_colour_manual(values = spec_col, name = NULL,
+                        guide = guide_legend(override.aes = list(linewidth = 1.5))) +
+    labs(x = "NINO3.4", y = y_lab, tag = tag) +
+    theme_classic(base_size = 13) +
+    theme(
+      legend.position  = "none",
+      plot.tag         = element_text(size = 18, face = "bold"),
+      axis.title.y     = element_text(size = 10),
+      panel.grid.minor = element_blank()
+    )
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Panel A: Famine onset – Central Europe
+# ══════════════════════════════════════════════════════════════════════════════
+ce <- famines %>% filter(Region == "Central Europe")
+
+m1_lin <- feols(Famine_start ~ nino34                  | Region,
+                data = ce, panel.id = c("Region","Year"), vcov = DK ~ Year)
+m1_p2  <- feols(Famine_start ~ poly(nino34,2,raw=TRUE)  | Region,
+                data = ce, panel.id = c("Region","Year"), vcov = DK ~ Year)
+m1_p3  <- feols(Famine_start ~ poly(nino34,3,raw=TRUE)  | Region,
+                data = ce, panel.id = c("Region","Year"), vcov = DK ~ Year)
+
+p1 <- make_panel(pp(m1_lin), pp(m1_p2), pp(m1_p3),
+                 y_lab = "P(famine onset)",
+                 tag   = "a")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Panel B: Grain prices at h = 1
+# ══════════════════════════════════════════════════════════════════════════════
+m2_lin <- feols(f(logprice,1) - l(logprice,1) ~ nino34                  + i(Decade) | Location,
+                data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
+m2_p2  <- feols(f(logprice,1) - l(logprice,1) ~ poly(nino34,2,raw=TRUE) + i(Decade) | Location,
+                data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
+m2_p3  <- feols(f(logprice,1) - l(logprice,1) ~ poly(nino34,3,raw=TRUE) + i(Decade) | Location,
+                data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
+
+p2 <- make_panel(pp(m2_lin), pp(m2_p2), pp(m2_p3),
+                 y_lab = "Log grain price change (h = 1)",
+                 tag   = "b")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Panel C: WR teleconnected yields at h = 0 (v2 panel, gold-ticket #3 spec)
+# Outcome: log(yield/sd(yield)) — β reads as % harvest (sd absorbed by VLG FE).
+# FE: VarLocationGrain[Year, Year2, Year3] (cubic record trend).
+# Controls: i(decade) + l(nino34, 1:3).
+# ══════════════════════════════════════════════════════════════════════════════
+WR_tele_nl <- yield_v2_GT3 %>% filter(Grain %in% c("Wheat","Rye"),
+                                       teleco_PDSI_10 == 1)
+
+m3_lin <- feols(f(logyield,0) - l(logyield,1) ~ nino34 + l(nino34, 1:3)
+                + i(decade) | VarLocationGrain[Year, Year2, Year3],
+                data = WR_tele_nl, panel.id = c("VarLocationGrain","Year"),
+                vcov = DK ~ Year)
+m3_p2  <- feols(f(logyield,0) - l(logyield,1) ~ poly(nino34,2,raw=TRUE)
+                + l(nino34, 1:3) + i(decade)
+                | VarLocationGrain[Year, Year2, Year3],
+                data = WR_tele_nl, panel.id = c("VarLocationGrain","Year"),
+                vcov = DK ~ Year)
+m3_p3  <- feols(f(logyield,0) - l(logyield,1) ~ poly(nino34,3,raw=TRUE)
+                + l(nino34, 1:3) + i(decade)
+                | VarLocationGrain[Year, Year2, Year3],
+                data = WR_tele_nl, panel.id = c("VarLocationGrain","Year"),
+                vcov = DK ~ Year)
+
+p3 <- make_panel(pp(m3_lin), pp(m3_p2), pp(m3_p3),
+                 y_lab = "Log yield change (h = 0)",
+                 tag   = "c")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Panel D: Fish prices at h = 3
+# ══════════════════════════════════════════════════════════════════════════════
+m4_lin <- feols(f(logprice,3) - l(logprice,1) ~ nino34                  + i(Decade) | LocationSpecies,
+                data = fishprice, panel.id = c("LocationSpecies","Year"), vcov = DK ~ Year)
+m4_p2  <- feols(f(logprice,3) - l(logprice,1) ~ poly(nino34,2,raw=TRUE) + i(Decade) | LocationSpecies,
+                data = fishprice, panel.id = c("LocationSpecies","Year"), vcov = DK ~ Year)
+m4_p3  <- feols(f(logprice,3) - l(logprice,1) ~ poly(nino34,3,raw=TRUE) + i(Decade) | LocationSpecies,
+                data = fishprice, panel.id = c("LocationSpecies","Year"), vcov = DK ~ Year)
+
+p4 <- make_panel(pp(m4_lin), pp(m4_p2), pp(m4_p3),
+                 y_lab = "Log fish price change (h = 3)",
+                 tag   = "d")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Shared legend (extracted from p1 with legend turned on temporarily)
+# ══════════════════════════════════════════════════════════════════════════════
+p_legend <- p1 +
+  theme(
+    legend.position     = "top",
+    legend.text         = element_text(size = 14),
+    legend.key.width    = unit(1.5, "cm"),
+    legend.spacing.x    = unit(0.4, "cm")
+  )
+
+legend_grob <- ggpubr::get_legend(p_legend)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2×2 layout with legend above
+# ══════════════════════════════════════════════════════════════════════════════
+p_grid <- (p1 | p2) / (p3 | p4)
+
+p_all <- ggpubr::ggarrange(
+  ggpubr::as_ggplot(legend_grob),
+  p_grid,
+  ncol    = 1,
+  heights = c(0.06, 1)
+)
+
+p_all
+ggsave("../analysis/output/figures/appendix/FigA_nonlin.pdf", p_all, device = cairo_pdf)
+```
+
+
 # TYW
 
 ```{r}
 m_onset <- feols(
-  Famine_start ~ nino34:Region  | Region + Decade,
+  Famine_start ~ nino34:Region + i(Decade)  | Region,
   data = famines,
   vcov = DK ~ Year,
   panel.id = c("Region", "Year")
 )
 
 m_tyw <- feols(
-  Famine_start ~ nino34:Region  | Region + Decade,
-  data = famines %>% filter(Year >=1648),
+  Famine_start ~ nino34:Region + i(Decade)  | Region,
+  data = famines %>% 
+  filter(!between(Year, 1618, 1648)),
   vcov = DK ~ Year,
   panel.id = c("Region", "Year")
 )
 
 etable(m_onset, m_tyw, vcov = DK ~ Year,
        keep_raw = "nino34:RegionCentral",
-       tex = TRUE,
-       file = "../figures/plots/TYW_CE_nino34_coef.tex")
+       #change model names
+       headers = c("Full sample", "Excl. Thirty Years' War"),
+       tex = TRUE, replace= TRUE,
+       file = "../analysis/output/tables/TYW_CE_nino34_coef.tex")
 ```
 
 ```{r}
-coef(m_onset)
+etable(m_onset, m_tyw, keep_raw = "nino34:RegionCentral",
+       vcov = DK ~ Year)
 ```
 
 # Fig 2A as contingency table: Fisher's exact test
@@ -293,6 +448,460 @@ cat("Saved contingency.tex\n")
 ```
 
 
+# Trade Market Integration (Sound Toll)
+
+```{r trade-sound-toll}
+# ── Load and aggregate Sound Toll data to yearly level ─────────────────────
+sound_raw <- haven::read_dta("../processed data/trade_sound_toll_dataset.dta")
+
+# Average log passages and log tax across ports within each year
+sound_yearly <- data.frame(
+  Year              = as.integer(names(tapply(sound_raw$lnpassage_nr,    sound_raw$year, mean, na.rm = TRUE))),
+  ln_passages_total = as.numeric(tapply(sound_raw$lnpassage_nr,    sound_raw$year, mean, na.rm = TRUE)),
+  ln_tax_total      = as.numeric(tapply(sound_raw$lntax_total_gold, sound_raw$year, mean, na.rm = TRUE))
+)
+
+# ── Merge with famine panel ─────────────────────────────────────────────────
+famines_trade <- famines %>%
+  left_join(sound_yearly, by = "Year")
+
+cat("Famine obs with Sound Toll coverage:",
+    sum(!is.na(famines_trade$ln_passages_total)), "/", nrow(famines_trade), "\n")
+cat("Year range with Sound Toll data:",
+    range(famines_trade$Year[!is.na(famines_trade$ln_passages_total)]), "\n")
+```
+
+```{r trade-lpm-models}
+# ── Baseline: full sample ────────────────────────────────────────────────────
+m_base_full <- feols(
+  Famine_start ~ nino34:Region + i(Decade) | Region,
+  data = famines, vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+# ── Restrict to Sound Toll overlap (1591–1800) ───────────────────────────────
+famines_sound <- famines_trade %>% filter(!is.na(ln_passages_total))
+
+# Baseline: restricted sample
+m_base_restricted <- feols(
+  Famine_start ~ nino34:Region + i(Decade) | Region,
+  data = famines_sound, vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+# Base + trade (ln_passages + ln_tax)
+m_trade <- feols(
+  Famine_start ~ nino34:Region + i(Decade) +
+    ln_passages_total + ln_tax_total | Region,
+  data = famines_sound, vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+# Base + trade + climate/conflict controls
+m_trade_ctrl <- feols(
+  Famine_start ~ nino34:Region + i(Decade) +
+    ln_passages_total + ln_tax_total +
+    JSL:Region + NAO_cal:Region +
+    ongoing_wars:Region + log(1 + Deaths):Region | Region,
+  data = famines_sound, vcov = DK ~ Year,
+  panel.id = c("Region", "Year")
+)
+
+etable(m_base_full, m_base_restricted, m_trade, m_trade_ctrl,
+       keep_raw = "nino34:RegionCentral Europe")
+```
+
+```{r trade-table, results='asis'}
+# ── Regression table ────────────────────────────────────────────────────────
+etable(
+  m_base_full, m_base_restricted, m_trade, m_trade_ctrl,
+  keep_raw     = c("nino34:RegionCentral Europe"),
+  drop.section = "fixef",
+  fitstat      = c("N", "cor2"),
+  dict         = c(
+    "nino34:RegionCentral Europe" = "Nino3.4 $\\times$ Central Europe",
+    ln_passages_total             = "ln(Sound Toll passages)",
+    ln_tax_total                  = "ln(Sound Toll tax)",
+    Famine_start                  = "Famine Start"
+  ),
+  extralines = list(
+    "Decade FE"                  = c("Yes", "Yes", "Yes", "Yes"),
+    "Region FE"                  = c("Yes", "Yes", "Yes", "Yes"),
+    "Climate/Conflict Controls"  = c("No",  "No",  "No",  "Yes"),
+    "Sound Toll Control"         = c("No",  "No",  "Yes", "Yes"),
+    "Sample"                     = c("1500--1800", rep("1591--1800", 3))
+  ),
+  tex    = TRUE,
+  label  = "tab:trade_onset",
+  file   = "../analysis/output/tables/trade_onset.tex",
+  title  = "Famine Onset Model with Trade Controls"
+)
+```
 
 
+# Trade Market Integration – IRF Analysis
+
+## Panel A: Grain Price IRF (baseline vs. controlling for trade & tax)
+
+```{r price-trade-irf-data}
+# Merge price panel with Sound Toll yearly data
+price_trade <- price %>%
+  left_join(sound_yearly, by = "Year") %>%
+  filter(!is.na(ln_passages_total), !is.na(logprice))
+
+
+```
+
+```{r price-trade-irf-run}
+# Baseline price IRF (restricted to Sound Toll overlap years)
+irf_price_base <- lp_panel(
+  data         = price,
+  outcome      = "logprice",
+  main_var     = "nino34",
+  controls     = "i(Decade) + l(nino34, 1:3)",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Baseline")
+
+# Price IRF controlling for trade (ln_passages) and tax (ln_tax)
+irf_price_trade <- lp_panel(
+  data         = price_trade,
+  outcome      = "logprice",
+  main_var     = "nino34",
+  controls     = "i(Decade) + ln_passages_total + ln_tax_total + l(nino34, 1:3)",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Trade & Tax Controls")
+
+irf_price_combined <- bind_rows(irf_price_base, irf_price_trade) %>%
+  mutate(label = factor(label, levels = c("Baseline", "Trade & Tax Controls")))
+```
+
+```{r price-trade-irf-figure, fig.width=7, fig.height=5}
+col_price <- c("Baseline" = "#4477AA", "Trade & Tax Controls" = "firebrick")
+
+pA <- ggplot(irf_price_combined, aes(x = horizon, y = irf_mean,
+                                      colour = label, fill = label)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up),
+              alpha = 0.10, colour = NA) +
+  geom_line(linewidth = 0.9) +
+  scale_x_continuous("Horizon (years)", breaks = 0:10) +
+  scale_y_continuous("log grain price variation") +
+  scale_colour_manual(values = col_price, name = NULL) +
+  scale_fill_manual(values   = col_price, name = NULL) +
+  labs(tag = "A") +
+  theme_classic(base_size = 15) +
+  theme(
+    plot.tag           = element_text(size = 16, face = "bold"),
+    legend.position    = "bottom"
+  )
+
+pA
+```
+
+
+## Panel B: Grain Yield IRF (teleconnected vs. non-teleconnected, controlling for price)
+
+```{r yield-trade-irf-data}
+
+
+WR_ctrl <- yield_2023 %>%
+  filter(Grain %in% c("Wheat", "Rye")) %>%
+  left_join(sound_yearly, by = "Year")
+
+WR_base <- yield_2023 %>%
+  filter(Grain %in% c("Wheat", "Rye"))
+```
+
+```{r yield-trade-irf-run}
+ctrl_yield_base  <- "i(decade) + l(nino34, 1:3)"
+ctrl_yield_price <- "i(decade) + ln_passages_total + ln_tax_total + l(nino34, 1:3)"
+
+WR_tele_ctrl <- WR_ctrl %>% filter(teleco_PDSI_10 == 1)
+WR_weak_ctrl <- WR_ctrl %>% filter(teleco_PDSI_10 == 0)
+
+WR_tele_base <- WR_base %>% filter(teleco_PDSI_10 == 1)
+WR_weak_base <- WR_base %>% filter(teleco_PDSI_10 ==0)
+
+irf_yield_tele_base <- lp_panel(
+  data         = WR_tele_base %>% filter(!is.na(logyield)),
+  outcome      = "logyield",
+  main_var     = "nino34",
+  controls     = ctrl_yield_base,
+  horizon      = 5,
+  fe           = "VarLocationGrain",
+  panel_id     = c("VarLocationGrain", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Teleconnected")
+
+irf_yield_weak_base <- lp_panel(
+  data         = WR_weak_base,
+  outcome      = "logyield",
+  main_var     = "nino34",
+  controls     = ctrl_yield_base,
+  horizon      = 5,
+  fe           = "VarLocationGrain",
+  panel_id     = c("VarLocationGrain", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Non-Teleconnected")
+
+irf_yield_tele_price <- lp_panel(
+  data         = WR_tele_ctrl,
+  outcome      = "logyield",
+  main_var     = "nino34",
+  controls     = ctrl_yield_price,
+  horizon      = 5,
+  fe           = "VarLocationGrain",
+  panel_id     = c("VarLocationGrain", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Teleco + Price Control")
+
+irf_yield_weak_price <- lp_panel(
+  data         = WR_weak_ctrl,
+  outcome      = "logyield",
+  main_var     = "nino34",
+  controls     = ctrl_yield_price,
+  horizon      = 5,
+  fe           = "VarLocationGrain",
+  panel_id     = c("VarLocationGrain", "Year"),
+  vcov_formula = DK ~ Year
+) %>% mutate(label = "Non-Teleco + Price Control")
+
+irf_yield_combined <- bind_rows(
+  irf_yield_tele_base, irf_yield_weak_base,
+  irf_yield_tele_price, irf_yield_weak_price
+) %>%
+  mutate(label = factor(label, levels = c(
+    "Teleconnected", "Non-Teleconnected",
+    "Teleco + Price Control", "Non-Teleco + Price Control"
+  )))
+```
+
+```{r yield-trade-irf-figure, fig.width=7, fig.height=5}
+col_yield <- c(
+  "Teleconnected"              = "firebrick",
+  "Non-Teleconnected"          = "cornflowerblue",
+  "Teleco + Price Control"     = "#CC4444",
+  "Non-Teleco + Price Control" = "#6688CC"
+)
+lty_yield <- c(
+  "Teleconnected"              = "solid",
+  "Non-Teleconnected"          = "solid",
+  "Teleco + Price Control"     = "dashed",
+  "Non-Teleco + Price Control" = "dashed"
+)
+
+offsets_y <- c(
+  "Teleconnected"              = -0.15,
+  "Non-Teleconnected"          = -0.05,
+  "Teleco + Price Control"     =  0.05,
+  "Non-Teleco + Price Control" =  0.15
+)
+
+irf_yield_plot <- irf_yield_combined %>%
+  mutate(h = horizon + offsets_y[as.character(label)])
+
+pB <- ggplot(irf_yield_plot, aes(x = h, y = irf_mean,
+                                   colour = label)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_linerange(aes(ymin = irf_down, ymax = irf_up), linewidth = 0.8) +
+  geom_point(aes(shape = label), size = 2.5) +
+  scale_shape_manual(values = c(
+    "Teleconnected"              = 16,
+    "Non-Teleconnected"          = 16,
+    "Teleco + Price Control"     = 17,
+    "Non-Teleco + Price Control" = 17
+  ), name = NULL,
+     labels = c("Teleconnected", "Non-Teleconnected",
+                "Teleco +\nTrade/Tax Control", "Non-Teleco +\nTrade/Tax Control")) +
+  scale_x_continuous("Horizon (years)", breaks = 0:5) +
+  scale_y_continuous("log grain harvest") +
+  scale_colour_manual(values = col_yield, name = NULL,
+                      labels = c("Teleconnected", "Non-Teleconnected",
+                                 "Teleco +\nTrade/Tax Control", "Non-Teleco +\nTrade/Tax Control")) +
+  labs(tag = "B") +
+  theme_classic(base_size = 15) +
+  theme(
+    plot.tag        = element_text(size = 16, face = "bold"),
+    legend.position = "bottom",
+    legend.key.size = unit(0.4, "cm"),
+    legend.text     = element_text(size = 11),
+    legend.spacing.x = unit(0.3, "cm")
+  ) +
+  guides(colour = guide_legend(nrow = 2, byrow = TRUE),
+         shape  = guide_legend(nrow = 2, byrow = TRUE))
+
+pB
+```
+
+
+## Combined two-panel figure
+
+```{r trade-irf-combined-figure, fig.width=10, fig.height=5}
+p_trade_irf <- pA + pB + plot_layout(ncol = 2)
+p_trade_irf
+
+ggsave("../analysis/output/figures/extended data/ED_trade_irf.pdf",
+       p_trade_irf, device = cairo_pdf,
+       create.dir = TRUE)
+```
+
+
+# Yield IRF – Wheat/Rye, Teleconnected regions
+
+```{r yield-irf-setup}
+source("../emileRegs.R")
+
+WR <- yield_2023 %>% filter(Grain %in% c("Wheat", "Rye"))
+
+# ── helpers (mirrors 03_fig3_harvest.R) ────────────────────────────────────
+run_lp_wr <- function(df, endog, controls = "i(decade)", hor = 3) {
+  lp_panel(
+    data         = df,
+    outcome      = endog,
+    main_var     = "nino34",
+    controls     = controls,
+    horizon      = hor,
+    fe           = "VarLocationGrain",
+    panel_id     = c("VarLocationGrain", "Year"),
+    vcov_formula = DK ~ Year
+  )
+}
+
+plot_irf <- function(df_irf, title) {
+  ggplot(df_irf, aes(x = horizon, y = irf_mean, ymin = irf_down, ymax = irf_up,
+                     colour = label, fill = label)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_ribbon(alpha = 0.15, colour = NA) +
+    geom_line(linewidth = 0.9) +
+    geom_point(size = 2) +
+    scale_x_continuous(breaks = 0:3) +
+    labs(x = "Horizon (years)", y = "% change in log yield",
+         title = title, colour = NULL, fill = NULL) +
+    theme_classic(base_size = 13) +
+    theme(legend.position = "bottom")
+}
+```
+
+```{r yield-irf-run}
+WR_all   <- WR
+WR_weak  <- WR %>% filter(teleco_PDSI_10 == 0)
+WR_tele  <- WR %>% filter(teleco_PDSI_10 == 1)
+
+ctrl_base <- "i(decade)"
+ctrl_full <- "i(decade) + JSL + NAO_cal + ongoing_wars + Deaths"
+# The LP LHS is f(y,h) - l(y,1), so adding l(logyield,1) as a control
+# is equivalent to including a lag of the dependent variable level
+ctrl_lag  <- "i(decade) + l(dy, 1)"
+ctrl_lag_full <- "i(decade) + l(dy, 1) + JSL + NAO_cal + ongoing_wars + Deaths"
+
+# ── Baseline (replicates Fig 3C) ────────────────────────────────────────────
+irf_base <- bind_rows(
+  run_lp_wr(WR_all,  "logyield", controls = ctrl_base) %>% mutate(group = "All regions"),
+  run_lp_wr(WR_weak, "logyield", controls = ctrl_base) %>% mutate(group = "Weakly affected"),
+  run_lp_wr(WR_tele, "logyield", controls = ctrl_base) %>% mutate(group = "Teleconnected"),
+  run_lp_wr(WR_tele, "logyield", controls = ctrl_full) %>% mutate(group = "Teleco + controls")
+) %>% mutate(spec = "Baseline")
+
+# ── Lag-augmented: adds l(logyield,1) to the RHS ───────────────────────────
+irf_lag <- bind_rows(
+  run_lp_wr(WR_all,  "logyield", controls = ctrl_lag)      %>% mutate(group = "All regions"),
+  run_lp_wr(WR_weak, "logyield", controls = ctrl_lag)      %>% mutate(group = "Weakly affected"),
+  run_lp_wr(WR_tele, "logyield", controls = ctrl_lag)      %>% mutate(group = "Teleconnected"),
+  run_lp_wr(WR_tele, "logyield", controls = ctrl_lag_full) %>% mutate(group = "Teleco + controls")
+) %>% mutate(spec = "Lag-augmented")
+
+irf_all <- bind_rows(irf_base, irf_lag) %>%
+  mutate(
+    group = factor(group, levels = c("All regions", "Weakly affected",
+                                     "Teleconnected", "Teleco + controls")),
+    spec  = factor(spec,  levels = c("Baseline", "Lag-augmented"))
+  )
+```
+
+```{r yield-irf-figure, fig.width=8, fig.height=4}
+col_map <- c("All regions"       = "black",
+             "Weakly affected"   = "cornflowerblue",
+             "Teleconnected"     = "firebrick",
+             "Teleco + controls" = "orange")
+
+# small horizontal offset per group so errorbars don't overlap
+offsets <- c("All regions" = -0.18, "Weakly affected" = -0.06,
+             "Teleconnected" = 0.06, "Teleco + controls" = 0.18)
+
+irf_plot <- irf_all %>%
+  mutate(h = horizon + offsets[as.character(group)])
+
+p <- ggplot(irf_plot, aes(x = h, y = irf_mean, colour = group)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_linerange(aes(ymin = irf_down, ymax = irf_up), linewidth = 1.0) +
+  geom_point(size = 2.8) +
+  facet_wrap(~spec, nrow = 1) +
+  scale_x_continuous("Horizon (years)", breaks = 0:3) +
+  scale_y_continuous("% harvest response") +
+  scale_colour_manual(values = col_map, name = NULL) +
+  coord_cartesian(ylim = c(-0.16, 0.08)) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.text         = element_text(size = 13, face = "bold"),
+    strip.background   = element_blank(),
+    legend.position    = "bottom",
+    panel.grid.major.y = element_line(colour = "grey90", linewidth = 0.4)
+  )
+
+p
+ggsave("../figures/plots/ED_yield_irf_lagcheck.pdf", p, device = cairo_pdf)
+```
+
+
+# Price IRF – Inflation rate as dependent variable
+
+The main paper (Fig 5A) estimates the IRF of ENSO on **log price levels**
+(`logprice`). Here we use the **log price change** (`logprice_diff` = year-on-year
+inflation rate) as the outcome variable instead, so the IRF shows the effect on the
+*rate* of price growth rather than the cumulative level.
+
+```{r price-irf-inflation}
+# LP variant without subtracting l(y,1): LHS is f(outcome, h) rather than
+# f(outcome, h) - l(outcome, 1). Appropriate here because the outcome is
+# already a first difference (logprice_diff), so no further differencing needed.
+# Scale nino34 by its cross-sample SD so IRF is per 1 SD shock
+nino34_sd  <- sd(price$nino34, na.rm = TRUE)
+
+price_diff <- price %>%
+  filter(!is.na(logprice_diff)) %>%
+  mutate(nino34_scaled = nino34 / nino34_sd)
+
+irf_grain_infl <- lp_panel(
+  data         = price_diff,
+  outcome      = "logprice_diff",
+  main_var     = "nino34_scaled",
+  controls     = "i(Decade)",
+  horizon      = 10,
+  fe           = "Location",
+  panel_id     = c("Location", "Year"),
+  vcov_formula = DK ~ Year
+)
+```
+
+```{r price-irf-inflation-figure, fig.width=7, fig.height=5}
+ggplot(irf_grain_infl, aes(x = horizon, y = irf_mean, ymin = irf_down, ymax = irf_up)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_ribbon(fill = "cornflowerblue", alpha = 0.2) +
+  geom_line(colour = "cornflowerblue", linewidth = 0.9) +
+  geom_point(colour = "cornflowerblue", size = 2) +
+  scale_x_continuous("Horizon (years)", breaks = seq(0, 10, 2)) +
+  scale_y_continuous("Effect on log price inflation (per 1 SD ENSO shock)") +
+  ggtitle("Grain price inflation response to ENSO") +
+  theme_classic(base_size = 13) +
+  theme(panel.grid.major.y = element_line(colour = "grey90", linewidth = 0.4))
+
+ggsave("../figures/plots/ED_price_irf_inflation.pdf",
+       width = 7, height = 5, device = cairo_pdf)
+```
 

@@ -27,8 +27,10 @@ ANALYSIS_DIR = Path(__file__).parent
 # 07_ml_onset_survival.py is NOT listed here – it is imported directly by
 # assemble_figures.py (make_fig2 / make_fig4) so ML runs exactly once.
 scripts = [
-    "assemble_figures.py",
-    "08_spatial_maps.py",
+    "assemble_figures.py",      # Figs 1-5 (main)
+    "08_spatial_maps.py",       # appendix teleconnection maps
+    "09_enso_precip_lags.py",   # ED ENSO x precip lag maps
+    "33_fig_v2_onset_panels.py",# ED onset panels (lag/lead + Swiss exclusion)
 ]
 
 
