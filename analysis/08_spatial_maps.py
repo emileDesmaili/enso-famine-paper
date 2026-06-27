@@ -1,19 +1,15 @@
 """
-08_spatial_maps.py  –  Supplementary teleconnection maps for appendix.
+08_spatial_maps.py  –  Supplementary teleconnection map for appendix.
 
-Produces 2×2 panel maps (nino3, nino34, nino4, nino12) for each variable:
-  • PDSI          (OWDA scPDSI, JJA season)
-  • Summer Temp   (ModE-RA, AMJJ)
-  • Winter Temp   (ModE-RA, NDJF)
-  • Summer Precip (ModE-RA, AMJJ)
-  • Winter Precip (ModE-RA, NDJF)
+Produces a single combined NINO3.4 teleconnection figure with one panel per
+climate variable / season:
+  • scPDSI         (OWDA, JJA)
+  • Summer Temp    (ModE-RA, AMJJ)
+  • Winter Temp    (ModE-RA, NDJF)
+  • Summer Precip  (ModE-RA, AMJJ)
+  • Winter Precip  (ModE-RA, NDJF)
 
-Outputs saved to analysis/output/figures/appendix/:
-  PDSI_telecomap.pdf
-  SummerTemp_telecomap.pdf
-  WinterTemp_telecomap.pdf
-  SummerPrecip_telecomap.pdf
-  WinterPrecip_telecomap.pdf
+Output: analysis/output/figures/appendix/teleconnections_nino34.pdf
 """
 
 from __future__ import annotations
@@ -109,47 +105,57 @@ def _corr_grid_xr(field_da: xr.DataArray, nino_da: xr.DataArray):
 # ══════════════════════════════════════════════════════════════════════════════
 # Plotting
 # ══════════════════════════════════════════════════════════════════════════════
-def _draw_panel(ax, corr_vals, p_vals, lat2d, lon2d,
-                nino_name: str, cmap: str, levels: np.ndarray):
-    cmap_obj = plt.get_cmap(cmap, len(levels) - 1)
-    norm     = BoundaryNorm(levels, ncolors=cmap_obj.N)
+def _make_combined(results: dict, out_name: str = "teleconnections_nino34.pdf"):
+    """Single figure: one panel per variable/season, NINO3.4 only.
 
-    im = ax.pcolormesh(lon2d, lat2d, corr_vals,
-                       cmap=cmap_obj, norm=norm, shading="auto",
-                       transform=ccrs.PlateCarree())
-    if p_vals is not None:
-        sig = p_vals <= ALPHA
-        ax.scatter(lon2d[sig], lat2d[sig], s=4, color="black",
+    `results` is a dict keyed by panel label with values
+    (corr_vals, p_vals, lat2d, lon2d, cmap, levels).
+    Layout: 2 rows × 3 cols, bottom-right slot used for the shared colorbar.
+    """
+    panel_order = [
+        "scPDSI (JJA)",
+        "Temperature (AMJJ)",
+        "Temperature (NDJF)",
+        "Precipitation (AMJJ)",
+        "Precipitation (NDJF)",
+    ]
+
+    fig = plt.figure(figsize=(13, 7.5))
+    gs  = fig.add_gridspec(2, 3, wspace=0.10, hspace=0.18,
+                           left=0.04, right=0.94, top=0.93, bottom=0.06)
+
+    last_im = None  # for sharing the colorbar
+    for k, lbl in enumerate(panel_order):
+        if lbl not in results:
+            continue
+        row, col = divmod(k, 3)
+        ax = fig.add_subplot(gs[row, col], projection=PROJ)
+        corr, pval, lat2d, lon2d, cmap, levels = results[lbl]
+        cmap_obj = plt.get_cmap(cmap, len(levels) - 1)
+        norm     = BoundaryNorm(levels, ncolors=cmap_obj.N)
+        im = ax.pcolormesh(lon2d, lat2d, corr,
+                           cmap=cmap_obj, norm=norm, shading="auto",
+                           transform=ccrs.PlateCarree())
+        sig = pval <= ALPHA
+        ax.scatter(lon2d[sig], lat2d[sig], s=3, color="black",
                    transform=ccrs.PlateCarree(), zorder=5)
+        ax.coastlines(linewidth=0.7)
+        ax.add_feature(cfeature.BORDERS, linestyle=":", linewidth=0.5)
+        ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
+        ax.set_title(lbl, fontsize=11)
+        cbar = plt.colorbar(im, ax=ax, orientation="vertical",
+                            fraction=0.034, pad=0.04)
+        cbar.set_label("Pearson r", fontsize=8)
+        cbar.set_ticks(levels[::2])
+        cbar.ax.tick_params(labelsize=7)
+        last_im = im
 
-    ax.coastlines(linewidth=0.7)
-    ax.add_feature(cfeature.BORDERS, linestyle=":", linewidth=0.5)
-    ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
-    ax.set_title(f"Correlation with {nino_name.upper()}", fontsize=10)
-
-    cbar = plt.colorbar(im, ax=ax, orientation="vertical",
-                        fraction=0.024, pad=0.04)
-    cbar.set_label("Pearson r", fontsize=9)
-    cbar.set_ticks(levels[::2])
-
-
-def _make_4panel(results: dict, title: str, cmap: str,
-                 levels: np.ndarray, out_name: str):
-    """results: {nino_name: (corr_vals, p_vals, lat2d, lon2d)}"""
-    nino_keys = ["nino3", "nino34", "nino4", "nino12"]
-    fig, axes = plt.subplots(2, 2, figsize=(10, 9),
-                             subplot_kw={"projection": PROJ})
-    fig.suptitle(title, fontsize=12, fontweight="bold", y=0.98)
-
-    for ax, key in zip(axes.flat, nino_keys):
-        corr, pval, lat2d, lon2d = results[key]
-        _draw_panel(ax, corr, pval, lat2d, lon2d, key, cmap, levels)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.suptitle("Teleconnections with NINO3.4 (1500–1800)",
+                 fontsize=13, fontweight="bold")
     out_path = OUT_DIR / out_name
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved {out_path.name}")
+    print(f"Saved {out_path.name}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -218,77 +224,53 @@ def _load_precip(nino_xr: xr.Dataset):
 # ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
-def _compute_results(merged: xr.Dataset, var_name: str,
-                     nino_keys: list[str]) -> dict:
-    da = merged[var_name].transpose("Year", "latitude", "longitude")
-    results = {}
-    for key in nino_keys:
-        nino_s = merged[key]
-        common = np.intersect1d(da["Year"].values, nino_s["Year"].values)
-        c, p, la, lo = _corr_grid_xr(da.sel(Year=common), nino_s.sel(Year=common))
-        results[key] = (c, p, la, lo)
-    return results
+def _corr_one(merged: xr.Dataset, var: str, nino_key: str = "nino34"):
+    da     = merged[var].transpose("Year", "latitude", "longitude")
+    nino_s = merged[nino_key]
+    common = np.intersect1d(da["Year"].values, nino_s["Year"].values)
+    return _corr_grid_xr(da.sel(Year=common), nino_s.sel(Year=common))
 
 
 def main():
-    nino_keys = ["nino3", "nino34", "nino4", "nino12"]
-    levels_bwg = np.linspace(-0.2, 0.2, 9)
-    levels_rbu = np.linspace(-0.2, 0.2, 9)
+    levels_bwg = np.linspace(-0.2, 0.2, 9)   # PDSI / precip
+    levels_rbu = np.linspace(-0.2, 0.2, 9)   # temperature
 
     print("Building ENSO indices …")
     enso_df = _build_enso_df()
     nino_xr = xr.Dataset.from_dataframe(enso_df.set_index("Year"))
 
+    results: dict = {}
+
     # ── PDSI ──────────────────────────────────────────────────────────────────
     owda_path = DATA_RAW / "owda.nc"
     if owda_path.exists():
-        print("PDSI teleconnections …")
+        print("PDSI …")
         merged = _load_owda(nino_xr)
-        results = _compute_results(merged, "PDSI_w", nino_keys)
-        _make_4panel(results,
-                     title="NINO × JJA scPDSI (1500–1800)",
-                     cmap="BrBG", levels=levels_bwg,
-                     out_name="PDSI_telecomap.pdf")
-    else:
-        print("owda.nc not found – skipping PDSI")
+        c, p, la, lo = _corr_one(merged, "PDSI_w")
+        results["scPDSI (JJA)"] = (c, p, la, lo, "BrBG", levels_bwg)
 
     # ── Temperature ───────────────────────────────────────────────────────────
     temp_path = DATA_RAW / "ModE-RA_ensmean_temp2_anom_wrt_1901-2000_1421-2008_mon.nc"
     if temp_path.exists():
-        print("Temperature teleconnections …")
+        print("Temperature …")
         merged_tw, merged_ts = _load_temp(nino_xr)
-        for season_label, merged, out_name, title in [
-            ("winter", merged_tw, "WinterTemp_telecomap.pdf",
-             "NINO × NDJF Temperature (1500–1800)"),
-            ("summer", merged_ts, "SummerTemp_telecomap.pdf",
-             "NINO × AMJJ Temperature (1500–1800)"),
-        ]:
-            print(f"  {season_label} …")
-            results = _compute_results(merged, "temp", nino_keys)
-            _make_4panel(results, title=title, cmap="RdBu_r",
-                         levels=levels_rbu, out_name=out_name)
-    else:
-        print("ModE-RA temp file not found – skipping temperature")
+        c, p, la, lo = _corr_one(merged_ts, "temp")
+        results["Temperature (AMJJ)"] = (c, p, la, lo, "RdBu_r", levels_rbu)
+        c, p, la, lo = _corr_one(merged_tw, "temp")
+        results["Temperature (NDJF)"] = (c, p, la, lo, "RdBu_r", levels_rbu)
 
     # ── Precipitation ─────────────────────────────────────────────────────────
     prec_path = DATA_RAW / "ModE-RA_ensmean_totprec_anom_wrt_1901-2000_1421-2008_mon.nc"
     if prec_path.exists():
-        print("Precipitation teleconnections …")
+        print("Precipitation …")
         merged_pw, merged_ps = _load_precip(nino_xr)
-        for season_label, merged, out_name, title in [
-            ("winter", merged_pw, "WinterPrecip_telecomap.pdf",
-             "NINO × NDJF Precipitation (1500–1800)"),
-            ("summer", merged_ps, "SummerPrecip_telecomap.pdf",
-             "NINO × AMJJ Precipitation (1500–1800)"),
-        ]:
-            print(f"  {season_label} …")
-            results = _compute_results(merged, "precip", nino_keys)
-            _make_4panel(results, title=title, cmap="BrBG",
-                         levels=levels_bwg, out_name=out_name)
-    else:
-        print("ModE-RA precip file not found – skipping precipitation")
+        c, p, la, lo = _corr_one(merged_ps, "precip")
+        results["Precipitation (AMJJ)"] = (c, p, la, lo, "BrBG", levels_bwg)
+        c, p, la, lo = _corr_one(merged_pw, "precip")
+        results["Precipitation (NDJF)"] = (c, p, la, lo, "BrBG", levels_bwg)
 
-    print(f"\nAll supplementary teleconnection maps saved to {OUT_DIR}")
+    _make_combined(results)
+    print(f"\nSaved to {OUT_DIR}")
 
 
 if __name__ == "__main__":
