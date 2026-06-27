@@ -729,19 +729,28 @@ export_irf_geo_partition <- function(yield_2023) {
   # (mirrors the famine-onset "Central Europe" region)
   ce_countries <- c("Germany", "Switzerland", "Hungary", "Austria")
 
-  safe_irf <- function(df, endog, hor_max, label) {
-    if (nrow(df) < 50 || dplyr::n_distinct(df$VarLocationGrain) < 1)
-      return(NULL)
-    extract_irf(run_lp_GT3(df, endog, hor = hor_max), label)
-  }
-  run_geo_irf <- function(df, endog, hor_max) {
-    df_ce   <- df |> filter( Country %in% ce_countries)
-    df_rest <- df |> filter(!Country %in% ce_countries)
-    bind_rows(
-      safe_irf(df,      endog, hor_max, "All regions"),
-      safe_irf(df_ce,   endog, hor_max, "Central Europe"),
-      safe_irf(df_rest, endog, hor_max, "Rest of Europe")
-    )
+  # Interaction-based partition: fit one LP on the joint sample with
+  # i(CE, nino34); pull CE = 1 / CE = 0 slopes from the same fit. The
+  # pooled "All regions" line stays as a separate pooled LP for reference.
+  run_geo_irf_inter <- function(df, endog, hor_max) {
+    df <- df |> mutate(CE = as.integer(Country %in% ce_countries))
+    if (nrow(df) < 50) return(NULL)
+
+    out_all <- extract_irf(run_lp_GT3(df, endog, hor = hor_max),
+                            "All regions",
+                            dplyr::n_distinct(df$VarLocationGrain))
+
+    res_int <- run_lp_GT3_inter(df, endog, hor = hor_max,
+                                 interact_var = "CE")
+    n_ce   <- dplyr::n_distinct(df$VarLocationGrain[df$CE == 1])
+    n_rest <- dplyr::n_distinct(df$VarLocationGrain[df$CE == 0])
+    out_ce   <- res_int |> dplyr::filter(category == "1") |>
+      transmute(label = "Central Europe", n_loc = n_ce,
+                horizon, irf_mean, irf_up, irf_down)
+    out_rest <- res_int |> dplyr::filter(category == "0") |>
+      transmute(label = "Rest of Europe", n_loc = n_rest,
+                horizon, irf_mean, irf_up, irf_down)
+    bind_rows(out_all, out_ce, out_rest)
   }
 
   yields_GT3 <- load_yields_GT3()
@@ -750,8 +759,8 @@ export_irf_geo_partition <- function(yield_2023) {
   noWR <- yields_GT3 |>
     filter(!Grain %in% c("Wheat", "Rye"))
 
-  irf_wr   <- run_geo_irf(WR,   "logyield", 3)
-  irf_nowr <- run_geo_irf(noWR, "logyield", 3)
+  irf_wr   <- run_geo_irf_inter(WR,   "logyield", 3)
+  irf_nowr <- run_geo_irf_inter(noWR, "logyield", 3)
 
   make_geo_panel <- function(df, title_lab) {
     groups  <- unique(df$label)
