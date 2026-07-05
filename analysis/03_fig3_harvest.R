@@ -10,7 +10,6 @@
 #   figA_irf_yield63.csv
 #   figA_irf_subsample_WR.csv
 #   figA_irf_20y_WR.csv
-#   figA_irf_WR_ninocheck.csv
 #   figA_irf_WR_bootstrap_null.csv / _true.csv
 #
 # Tables → analysis/output/tables/
@@ -97,12 +96,13 @@ irf_teleco_loop <- function(df, endog, hor_max,
 }
 
 load_yields <- function() {
-  read.csv(file.path(DATA_PROC, "yield_ljungqvist_2025.csv")) |>
+  # Uses the v2 Ljungqvist yield panel.
+  read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) |>
     mutate(decade = floor(Year / 10) * 10) |>
     dplyr::select(VarLocationGrain, Year, decade, everything())
 }
 
-# ── v2 data + GT#3 spec (cubic record trend, lagged ENSO, raw logyield).
+# ── v2 Ljungqvist yield panel loader (raw logyield, decade + Year features).
 #    Used for appendix SI figures. β reads directly as % harvest.
 load_yields_GT3 <- function() {
   read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) |>
@@ -112,7 +112,7 @@ load_yields_GT3 <- function() {
     dplyr::select(VarLocationGrain, Year, decade, Year2, Year3, everything())
 }
 
-FE_GT3 <- "VarLocationGrain[Year]"   # linear record trend (GT cell #4)
+FE_GT3 <- "VarLocationGrain[Year]"   # linear per-record time trend
 
 run_lp_GT3 <- function(df, endog = "logyield", shock = "nino34",
                        extra_controls = NULL, hor = 3) {
@@ -151,7 +151,7 @@ run_lp_GT3_inter <- function(df, endog = "logyield", shock = "nino34",
   )
 }
 
-# Gold-ticket #4 partition: pooled "All regions" + interaction split by teleco
+# Teleconnection partition: pooled "All regions" + interaction split by teleco
 # + "Teleco w. controls" (interaction + extra controls).
 irf_teleco_loop_GT3 <- function(df, endog = "logyield", hor_max = 3,
                                  teleco_col = "teleco_PDSI_10",
@@ -185,8 +185,8 @@ irf_teleco_loop_GT3 <- function(df, endog = "logyield", hor_max = 3,
 
 
 ###############################################################################
-# Fig 3C – Wheat/Rye harvest IRF (gold-ticket #4: linear record trend,
-# interaction with teleco_PDSI_10, 3 ENSO lags, v2 panel via load_yields_GT3)
+# Fig 3C – Wheat/Rye harvest IRF (linear record trend, interaction with
+# teleco_PDSI_10, 3 ENSO lags, v2 panel via load_yields_GT3)
 ###############################################################################
 export_fig3C <- function(yield_2023) {
   WR <- load_yields_GT3() |> filter(Grain %in% c("Wheat", "Rye"))
@@ -197,7 +197,7 @@ export_fig3C <- function(yield_2023) {
 
 
 ###############################################################################
-# Fig 3D – Other grain harvest IRF (gold-ticket #4 spec, same as fig 3C)
+# Fig 3D – Other-grain harvest IRF (same spec as fig 3C)
 ###############################################################################
 export_fig3D <- function(yield_2023) {
   noWR <- load_yields_GT3() |> filter(!Grain %in% c("Wheat", "Rye"))
@@ -222,7 +222,7 @@ run_lp_se_robust <- function(df, endog, shock = "nino34",
                               hor = 3,
                               lat_col = "Latitude", lon_col = "Longitude") {
   fml_rhs <- paste0(shock, " + ", controls)
-  fe_str  <- "VarLocationGrain[Year]"   # linear trend (GT#4)
+  fe_str  <- "VarLocationGrain[Year]"   # linear per-record trend
   pid     <- c("VarLocationGrain", "Year")
 
   bind_rows(lapply(0:hor, function(h) {
@@ -263,7 +263,7 @@ run_lp_se_robust <- function(df, endog, shock = "nino34",
 }
 
 export_se_robust_WR <- function(yield_2023) {
-  # Appendix uses v2 + gold-ticket #3 spec
+  # Appendix uses v2 Ljungqvist panel + main spec
   WR <- load_yields_GT3() |>
     filter(Grain %in% c("Wheat", "Rye"))
   run_lp_se_robust(WR, "logyield", hor = 3) |>
@@ -360,23 +360,6 @@ export_20y_WR <- function(yield_2023) {
   })) |>
     write.csv(file.path(out_data, "figA_irf_20y_WR.csv"), row.names = FALSE)
   message("Exported figA_irf_20y_WR.csv")
-}
-
-
-###############################################################################
-# Appendix: ENSO index robustness (WR)
-###############################################################################
-export_WR_ninocheck <- function(yield_2023) {
-  WR <- load_yields_GT3() |>
-    filter(Grain %in% c("Wheat", "Rye"))
-  ninos <- c("nino34", "nino3", "nino4", "nino12")
-  bind_rows(lapply(ninos, function(ni) {
-    if (!ni %in% names(WR)) return(NULL)
-    run_lp_GT3(WR, "logyield", shock = ni, hor = 3) |>
-      transmute(index = ni, horizon, irf_mean, irf_up, irf_down)
-  })) |>
-    write.csv(file.path(out_data, "figA_irf_WR_ninocheck.csv"), row.names = FALSE)
-  message("Exported figA_irf_WR_ninocheck.csv")
 }
 
 
@@ -500,26 +483,25 @@ export_yield_teleco_plots <- function(yield_2023) {
 ###############################################################################
 save_yield_table <- function(yield_2023) {
   suppressPackageStartupMessages(library(modelsummary))
-  # v2 yield panel with raw logyield outcome.
-  # Quadratic per-record time trend in the FE replaces Year:Location.
+  # v2 yield panel, raw logyield outcome, pooled distributed-lag spec.
+  # FE: VarLocationGrain[Year] (linear per-record trend) + i(decade).
   WR <- load_yields_GT3() |>
     filter(Grain %in% c("Wheat", "Rye"))
-  fe_spec  <- "VarLocationGrain[Year, Year2, Year3]"
   pid_spec <- c("VarLocationGrain", "Year")
 
-  est1 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+  est1 <- feols(logyield ~ l(nino34, 0:3) +
                   i(decade) | VarLocationGrain[Year],
                 data = WR, panel.id = pid_spec)
-  est2 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+  est2 <- feols(logyield ~ l(nino34, 0:3) +
                   i(decade) + PDSI + temp_summer + temp_winter +
                   precip_summer + precip_winter |
                   VarLocationGrain[Year],
                 data = WR, panel.id = pid_spec)
-  est3 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+  est3 <- feols(logyield ~ l(nino34, 0:3) +
                   i(decade) + ongoing_wars + log(1 + Deaths) |
                   VarLocationGrain[Year],
                 data = WR, panel.id = pid_spec)
-  est4 <- feols(logyield ~ l(nino34, 0:3):i(teleco_PDSI_10) +
+  est4 <- feols(logyield ~ l(nino34, 0:3) +
                   i(decade) + ongoing_wars + log(1 + Deaths) +
                   temp_summer + temp_winter + precip_summer + precip_winter |
                   VarLocationGrain[Year],
@@ -533,7 +515,6 @@ save_yield_table <- function(yield_2023) {
     "l(nino34, 3)"   = "NINO3.4 T-3",
     "ongoing_wars"   = "Ongoing Wars",
     "log(1+Deaths)"  = "Log(1+Deaths)",
-    "teleco_PDSI_10" = "scPDSI Teleconnection",
     "logyield"       = "Log Grain Harvest"
   )
 
@@ -605,31 +586,6 @@ plot_loo_WR <- function() {
   message("Saved figA_irf_loo_20y_WR.pdf")
 }
 
-plot_ninocheck_WR <- function() {
-  path <- file.path(out_data, "figA_irf_WR_ninocheck.csv")
-  if (!file.exists(path)) { message("figA_irf_WR_ninocheck.csv not found"); return() }
-  df <- read.csv(path)
-  n_idx   <- length(unique(df$index))
-  offsets <- seq(-0.1, 0.1, length.out = n_idx)
-  df      <- df |>
-    dplyr::group_by(index) |>
-    dplyr::mutate(offset = offsets[dplyr::cur_group_id()]) |>
-    dplyr::ungroup()
-  p <- ggplot(df, aes(x = horizon + offset, y = irf_mean, color = index)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    geom_errorbar(aes(ymin = irf_down, ymax = irf_up), width = 0.1, linewidth = 0.9) +
-    geom_point(size = 2.5) +
-    scale_x_continuous(breaks = scales::pretty_breaks()) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-    labs(x = "Horizon (years)",
-         y = "% Harvest response",
-         color = "ENSO index") +
-    theme_classic(base_size = 18) +
-    theme(panel.grid = element_blank(), legend.position = "bottom")
-  ggsave(file.path(fig_out, "figA_irf_ninocheck_WR.pdf"), p,
-         width = 6, height = 5, device = cairo_pdf)
-  message("Saved figA_irf_ninocheck_WR.pdf")
-}
 
 plot_yield63 <- function() {
   path <- file.path(out_data, "figA_irf_yield63.csv")
@@ -826,10 +782,8 @@ if (!interactive()) {
   export_se_robust_WR(yield_2023)
   export_loo_WR(yield_2023)
   export_20y_WR(yield_2023)
-  export_WR_ninocheck(yield_2023)
   export_bootstrap_WR(yield_2023, n_iter = 500)
   plot_loo_WR()
-  plot_ninocheck_WR()
   plot_yield63()
   plot_bootstrap_WR()
   plot_se_robust_WR()

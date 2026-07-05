@@ -177,33 +177,29 @@ save_yield_tables <- function() {
     )
   cat("Saved summary_yield_YR.tex\n")
 
-  ## 2c. FE-DL regression: wheat/rye harvest × PDSI teleconnection
+  ## 2c. FE-DL regression: pooled wheat/rye harvest, NINO3.4 lags 0..3
+  WR <- yield_2023 %>% filter(Grain %in% c("Wheat", "Rye"))
   est1 <- feols(
-    logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) + i(decade) |
-      VarLocationGrain,
-    data      = yield_2023 %>% filter(Grain %in% c("Wheat", "Rye")),
-    panel.id  = ~ VarLocationGrain + Year
+    logyield ~ l(nino34, 0:3) + i(decade) | VarLocationGrain[Year],
+    data = WR, panel.id = c("VarLocationGrain", "Year")
   )
   est2 <- feols(
-    logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) + i(decade) +
+    logyield ~ l(nino34, 0:3) + i(decade) +
       PDSI + temp_summer + temp_winter + precip_summer + precip_winter |
-      VarLocationGrain,
-    data      = yield_2023 %>% filter(Grain %in% c("Wheat", "Rye")),
-    panel.id  = c("VarLocationGrain", "Year")
+      VarLocationGrain[Year],
+    data = WR, panel.id = c("VarLocationGrain", "Year")
   )
   est3 <- feols(
-    logyield ~ Year:Location + l(nino34, 0:3):i(teleco_PDSI_10) + i(decade) +
-      ongoing_wars + log(1 + Deaths) | VarLocationGrain,
-    data      = yield_2023 %>% filter(Grain %in% c("Wheat", "Rye")),
-    panel.id  = c("VarLocationGrain", "Year")
+    logyield ~ l(nino34, 0:3) + i(decade) +
+      ongoing_wars + log(1 + Deaths) | VarLocationGrain[Year],
+    data = WR, panel.id = c("VarLocationGrain", "Year")
   )
   est4 <- feols(
-    logyield ~ Year:LocationGrain + l(nino34, 0:3):i(teleco_PDSI_10) + i(decade) +
+    logyield ~ l(nino34, 0:3) + i(decade) +
       ongoing_wars + log(1 + Deaths) +
-      temp_summer_europe + temp_winter_europe +
-      precip_summer_europe + precip_winter_europe | VarLocationGrain,
-    data      = yield_2023 %>% filter(Grain %in% c("Wheat", "Rye")),
-    panel.id  = c("VarLocationGrain", "Year")
+      temp_summer + temp_winter + precip_summer + precip_winter |
+      VarLocationGrain[Year],
+    data = WR, panel.id = c("VarLocationGrain", "Year")
   )
 
   dict_yield <- c(
@@ -219,7 +215,6 @@ save_yield_tables <- function() {
     "temp_winter"         = "Winter Temp",
     "precip_summer"       = "Summer Precip",
     "precip_winter"       = "Winter Precip",
-    "teleco_PDSI_10"      = "scPDSI Teleconnection",
     "logyield"            = "Log Grain Harvest"
   )
 

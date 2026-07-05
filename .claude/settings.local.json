@@ -31,7 +31,24 @@
       "Bash(tar -tf \"d:/git/enso-famine-paper/data/ModE-Sim_s14203_forc_7-10.tar\")",
       "Bash(awk 'NR<=3')",
       "Bash(/c/Users/emile/anaconda3/envs/famine-enso/python.exe -)",
-      "Bash(Rscript -e \"rmarkdown::render\\('analysis notebooks/Extended Data.Rmd', output_format='html_notebook'\\)\")"
+      "Bash(Rscript -e \"rmarkdown::render\\('analysis notebooks/Extended Data.Rmd', output_format='html_notebook'\\)\")",
+      "Bash(Rscript d:/tmp/_run_save_yield_table.R)",
+      "Bash(Rscript d:/tmp/_investig_fig5_trend.R)",
+      "Bash(/c/Users/emile/anaconda3/python.exe -c ' *)",
+      "Bash(Rscript -e \"setwd\\('d:/git/enso-famine-paper/analysis notebooks'\\); rmarkdown::render\\('volcanic_forcing.Rmd', quiet=TRUE\\)\")",
+      "Bash(grep -v \"\\\\.nb\\\\.html$\")",
+      "Bash(Rscript -e ' *)",
+      "Bash(Rscript -e 'knitr::purl\\(\"volcanic_forcing.Rmd\", output = \"d:/tmp/_volcanic_purl.R\", documentation = 0\\); cat\\(\"done\\\\n\"\\)')",
+      "Bash(Rscript -e 'knitr::purl\\(\"Extended Data NAO JSL ENSO.Rmd\", output = \"d:/tmp/_naojsl_purl.R\", documentation = 0\\); cat\\(\"done\\\\n\"\\)')",
+      "Bash(/c/Users/emile/anaconda3/python.exe)",
+      "Bash(Rscript \"d:/git/enso-famine-paper/analysis/34_ed_volcanic.R\")",
+      "Bash(Rscript \"d:/git/enso-famine-paper/analysis/35_ed_nao_jsl_enso.R\")",
+      "Bash(mkdir -p \"d:/git/enso-famine-paper/archive/analysis notebooks\" && \\\\ *)",
+      "Bash(grep -v \"^-$\")",
+      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to notebook --execute --inplace d:/git/enso-famine-paper/analysis/mechanisms.ipynb)"
+    ],
+    "additionalDirectories": [
+      "d:\\git\\enso-famine-paper\\analysis notebooks"
     ]
   }
 }
