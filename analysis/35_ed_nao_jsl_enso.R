@@ -1,0 +1,317 @@
+# Auto-converted from analysis notebooks/Extended Data NAO JSL ENSO.Rmd (do not edit the Rmd —
+# edit this script or re-purl if the Rmd is kept in the archive).
+# Produces: analysis/output/figures/extended data/figED_NAO_JSL_ENSO.pdf
+
+.script_dir <- function() {
+  args     <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("--file=", args, value = TRUE)
+  if (length(file_arg) > 0) {
+    dirname(normalizePath(sub("--file=", "", file_arg)))
+  } else {
+    tryCatch(dirname(normalizePath(sys.frame(1)$ofile)),
+             error = function(e) getwd())
+  }
+}
+SCRIPT_DIR <- .script_dir()
+ROOT_DIR   <- normalizePath(file.path(SCRIPT_DIR, ".."), mustWork = FALSE)
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(patchwork)
+  library(fixest)
+  library(purrr)
+  library(glue)
+  library(stringr)
+})
+
+source(file.path(ROOT_DIR, "emileRegs.R"))
+setFixest_notes(FALSE)
+
+fishprice <- read.csv(file.path(ROOT_DIR, "processed data/fishprice_enso.csv")) %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  dplyr::select(LocationSpecies, Year, Decade, everything()) %>%
+  arrange(LocationSpecies, Year) %>%
+  group_by(LocationSpecies) %>%
+  mutate(logprice_diff = logprice - lag(logprice)) %>%
+  ungroup()
+
+price <- read.csv(file.path(ROOT_DIR, "processed data/price_2023_enso.csv")) %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  dplyr::select(Location, Year, Decade, everything()) %>%
+  drop_na() %>%
+  distinct() %>%
+  arrange(Location, Year) %>%
+  group_by(Location) %>%
+  mutate(logprice_diff = logprice - lag(logprice)) %>%
+  ungroup()
+
+nature_theme <- function(base_size = 12) {
+  theme_classic(base_size = base_size) +
+    theme(
+      axis.line         = element_line(linewidth = 0.4, colour = "black"),
+      axis.ticks        = element_line(linewidth = 0.35, colour = "black"),
+      axis.ticks.length = unit(2.5, "pt"),
+      axis.text         = element_text(size = base_size - 1, colour = "black"),
+      axis.title        = element_text(size = base_size, colour = "black"),
+      legend.position   = "bottom",
+      legend.key.size   = unit(9, "pt"),
+      legend.text       = element_text(size = base_size - 1),
+      legend.title      = element_blank(),
+      legend.margin     = margin(0, 0, 0, 0),
+      legend.spacing.x  = unit(4, "pt"),
+      strip.background  = element_blank(),
+      strip.text        = element_text(face = "bold", size = base_size),
+      plot.tag          = element_text(face = "bold", size = base_size + 2),
+      plot.tag.position = "topleft",
+      plot.margin       = margin(4, 6, 4, 6, "pt")
+    )
+}
+
+ts_data <- price %>%
+  group_by(Year) %>%
+  summarise(
+    ENSO = mean(nino34,  na.rm = TRUE),
+    NAO  = mean(NAO_cal, na.rm = TRUE),
+    JSL  = mean(JSL,     na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(across(c(ENSO, NAO, JSL), ~ as.numeric(scale(.x))))
+
+cor_nao <- cor.test(ts_data$ENSO, ts_data$NAO)
+cor_jsl <- cor.test(ts_data$ENSO, ts_data$JSL)
+
+fmt_p <- function(p) if (p < 0.001) "< 0.001" else sprintf("= %.3f", p)
+
+lab_nao <- sprintf("r = %.2f, p %s", cor_nao$estimate, fmt_p(cor_nao$p.value))
+lab_jsl <- sprintf("r = %.2f, p %s", cor_jsl$estimate, fmt_p(cor_jsl$p.value))
+
+cat("ENSO vs NAO:", lab_nao, "\n")
+cat("ENSO vs JSL:", lab_jsl, "\n")
+
+COL_ENSO <- "black"   # near-black
+COL_NAO  <- "dodgerblue"   # vermillion
+COL_JSL  <- "tomato"   # blue
+
+df_nao <- ts_data %>%
+  dplyr::select(Year, ENSO, NAO) %>%
+  pivot_longer(-Year, names_to = "Index", values_to = "value") %>%
+  mutate(Index = factor(Index, levels = c("ENSO", "NAO")))
+
+df_jsl <- ts_data %>%
+  dplyr::select(Year, ENSO, JSL) %>%
+  pivot_longer(-Year, names_to = "Index", values_to = "value") %>%
+  mutate(Index = factor(Index, levels = c("ENSO", "JSL")))
+
+ylim_range <- range(c(df_nao$value, df_jsl$value), na.rm = TRUE)
+ylim_pad   <- ylim_range + c(-0.08, 0.10) * diff(ylim_range)
+
+make_ts_panel <- function(df, col_index, col_val, label_text,
+                          x_title = NULL, y_title = "Standardized index") {
+  ggplot(df, aes(Year, value, colour = Index)) +
+    geom_hline(yintercept = 0, colour = "grey75", linewidth = 0.3, linetype = "dashed") +
+    geom_line(linewidth = 0.55) +
+    annotate(
+      "text",
+      x = min(ts_data$Year), y = ylim_pad[2],
+      label = label_text,
+      hjust = 0, vjust = 1, size = 4, colour = "grey35"
+    ) +
+    scale_colour_manual(values = col_index, labels = names(col_index)) +
+    coord_cartesian(ylim = ylim_pad) +
+    labs(x = x_title, y = y_title) +
+    nature_theme() +
+    guides(colour = guide_legend(override.aes = list(linewidth = 1.2)))
+}
+
+p_nao <- make_ts_panel(
+  df_nao,
+  col_index  = c(ENSO = COL_ENSO, NAO = COL_NAO),
+  label_text = lab_nao
+)
+
+p_jsl <- make_ts_panel(
+  df_jsl,
+  col_index  = c(ENSO = COL_ENSO, JSL = COL_JSL),
+  label_text = lab_jsl,
+  x_title    = "Year"
+)
+
+panel_a <- wrap_plots(p_nao / p_jsl)
+panel_a
+
+COL_TOTAL <- "dodgerblue2"   # blue  – total effect
+COL_CTRL  <- "tomato"   # red   – controlling for other indices
+
+run_irfs <- function(data_in, var, controls_full, controls_base,
+                     label, dataset_name, panel_id, fe) {
+  bind_rows(
+    lp_panel(
+      data         = data_in,
+      outcome      = "logprice",
+      main_var     = var,
+      controls     = controls_full,
+      horizon      = 10,
+      fe           = fe,
+      panel_id     = panel_id,
+      vcov_formula = DK ~ Year
+    ) %>% mutate(shock = label, spec = "Controlling for others", dataset = dataset_name),
+
+    lp_panel(
+      data         = data_in,
+      outcome      = "logprice",
+      main_var     = var,
+      controls     = controls_base,
+      horizon      = 10,
+      fe           = fe,
+      panel_id     = panel_id,
+      vcov_formula = DK ~ Year
+    ) %>% mutate(shock = label, spec = "Total effect", dataset = dataset_name)
+  )
+}
+
+shocks <- tribble(
+  ~var,       ~label,  ~excl,
+  "nino34",   "ENSO",  "NAO_cal + JSL",
+  "NAO_cal",  "NAO",   "nino34 + JSL",
+  "JSL",      "JSL",   "nino34 + NAO_cal"
+) %>%
+  mutate(
+    # Add 3 lags of the shock to both specifications
+    controls_full = glue("{excl} + l({var}, 1:3)"),
+    controls_base = glue("l({var}, 1:3)")
+  )
+
+## Scale predictors to 1 SD so coefficients represent a 1-SD shock
+sd_vars <- c("nino34", "NAO_cal", "JSL")
+
+fishprice_sc <- fishprice %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
+
+price_sc <- price %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
+
+datasets <- list(
+  list(data = fishprice_sc, name = "Fish prices",   panel_id = c("LocationSpecies", "Year"), fe = "LocationSpecies + Decade"),
+  list(data = price_sc,     name = "Grain prices",  panel_id = c("Location", "Year"),        fe = "Location + Decade")
+)
+
+irf_all <- map_dfr(datasets, function(d) {
+  pmap_dfr(shocks, function(var, label, excl, controls_full, controls_base) {
+    run_irfs(d$data, var, controls_full, controls_base, label, d$name, d$panel_id, d$fe)
+  })
+}) %>%
+  mutate(
+    shock   = factor(shock,   levels = c("ENSO", "NAO", "JSL")),
+    spec    = factor(spec,    levels = c("Total effect", "Controlling for others")),
+    dataset = factor(dataset, levels = c("Fish prices", "Grain prices"))
+  )
+
+panel_b <- ggplot(irf_all, aes(horizon, irf_mean, colour = spec, fill = spec, linetype = spec)) +
+  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.13, colour = NA) +
+  geom_hline(yintercept = 0, colour = "grey55", linewidth = 0.3, linetype = "dashed") +
+  geom_line(linewidth = 0.75) +
+  facet_grid(dataset ~ shock) +
+  scale_x_continuous(breaks = seq(0, 10, 2), expand = c(0.02, 0)) +
+  scale_y_continuous(expand = c(0.07, 0)) +
+  scale_colour_manual(values   = c(COL_TOTAL, COL_CTRL)) +
+  scale_fill_manual(values     = c(COL_TOTAL, COL_CTRL)) +
+  scale_linetype_manual(values = c("solid", "longdash")) +
+  labs(
+    x = "Horizon (years)",
+    y = "Effect on log prices"
+  ) +
+  guides(
+    colour   = guide_legend(override.aes = list(linewidth = 1.2, alpha = 1)),
+    fill     = guide_legend(override.aes = list(alpha = 0.2)),
+    linetype = guide_legend(override.aes = list(linewidth = 1.2))
+  ) +
+  nature_theme()
+
+panel_b
+
+famines <- read.csv(file.path(ROOT_DIR, "processed data/famine_region_data.csv")) %>%
+  mutate(Decade = floor(Year / 10) * 10) %>%
+  arrange(Region, Year) %>%
+  mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
+
+m_famine <- feols(
+  Famine_start ~ NAO_cal:Region + JSL:Region + nino34:Region | Region + Decade,
+  data     = famines,
+  panel.id = c("Region", "Year"),
+  vcov     = DK ~ Year
+)
+
+# Extract tidy coefficients for the three indices.
+# fixest orders interaction terms inconsistently: NAO_cal:Region... but Region...:JSL
+# and Region...:nino34 — so we match on presence of the keyword anywhere in the term.
+coef_df <- broom::tidy(m_famine, conf.int = TRUE) %>%
+  filter(grepl("nino34|NAO_cal|JSL", term)) %>%
+  mutate(
+    Index = case_when(
+      grepl("nino34",  term) ~ "ENSO",
+      grepl("NAO_cal", term) ~ "NAO",
+      grepl("JSL",     term) ~ "JSL"
+    ),
+    # Strip index name and "Region" keyword to get the bare region string.
+    # Handles both orderings: "NAO_cal:RegionX" and "RegionX:nino34"
+    Region = term %>%
+      gsub("NAO_cal|nino34|JSL", "", .) %>%   # remove index name
+      gsub("Region",             "", .) %>%   # remove "Region" word
+      gsub("^:|:$|::",          "", .) %>%   # remove leading/trailing colons
+      trimws(),
+    Index  = factor(Index, levels = c("ENSO", "NAO", "JSL"))
+  )
+region_order <- sort(unique(coef_df$Region))
+
+coef_df <- coef_df %>%
+  mutate(Region = factor(Region, levels = region_order))
+
+panel_c <- ggplot(coef_df, aes(Region, estimate, colour = Index, shape = Index)) +
+  geom_hline(yintercept = 0, colour = "grey70", linewidth = 0.35, linetype = "dashed") +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.18, linewidth = 0.5,
+    position = position_dodge(width = 0.55)
+  ) +
+  geom_point(
+    size = 1.8,
+    position = position_dodge(width = 0.55)
+  ) +
+  scale_colour_manual(values = c(ENSO = COL_ENSO, NAO = COL_NAO, JSL = COL_JSL)) +
+  scale_shape_manual(values  = c(ENSO = 16, NAO = 17, JSL = 15)) +
+  labs(
+    x = NULL,
+    y = "Effect on Famine Prob. per SD"
+  ) +
+  nature_theme() +
+  #make x axis text bigger
+  
+  theme(
+    axis.text.x = element_text(angle = 35, hjust = 1, size = 10),
+    legend.position = "right"
+  )
+
+panel_c
+
+fig <- (panel_a | panel_b) / panel_c +
+  plot_layout(heights = c(1.6, 1)) +
+  plot_annotation(tag_levels = "a") &
+  theme(plot.tag = element_text(face = "bold", size = 14))
+
+fig
+
+out_dir <- file.path(ROOT_DIR, "analysis/output/figures/extended data")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+ggsave(
+  file.path(out_dir, "figED_NAO_JSL_ENSO.pdf"),
+  plot   = fig,
+  width  = 9,
+  height = 8,
+  units  = "in",
+  device = cairo_pdf
+)
+
+message("Saved → ", file.path(out_dir, "figED_NAO_JSL_ENSO.pdf"))

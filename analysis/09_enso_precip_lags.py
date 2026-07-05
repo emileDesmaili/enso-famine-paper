@@ -14,7 +14,7 @@ Columns:
 Style matches the main-figure teleconnection maps in assemble_figures.py
 (BrBG colormap, BoundaryNorm, EuroPP projection, stippling for p<=0.10).
 
-Saved to analysis/output/figures/extended data/figED_enso_precip_lags.pdf
+Saved to analysis/output/figures/investigation/figED_enso_precip_lags.pdf
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ SCRIPT_DIR = Path(__file__).parent
 ROOT       = SCRIPT_DIR.parent
 DATA_RAW   = ROOT / "data"
 DATA_PROC  = ROOT / "processed data"
-OUT_DIR    = SCRIPT_DIR / "output" / "figures" / "extended data"
+OUT_DIR    = SCRIPT_DIR / "output" / "figures" / "investigation"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 YEAR_RANGE = slice(1500, 1800)

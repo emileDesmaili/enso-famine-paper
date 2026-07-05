@@ -31,13 +31,13 @@ suppressPackageStartupMessages({
 source("../emileRegs.R")
 setFixest_notes(FALSE)
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-COL_ENSO  <- "dodgerblue"       # ENSO series
-COL_GVF   <- "tomato"           # GVF series
-COL_GR    <- "#0F3460"          # deep blue
-COL_ANT   <- "#E2AD1A"          # amber
-COL_BASE  <- "dodgerblue"       # baseline IRF
-COL_VOLC  <- "tomato"           # volcanic-controlled IRF
+# ── Colour palette (Okabe–Ito inspired, colour-blind friendly) ───────────────
+COL_ENSO  <- "#0072B2"          # blue          – ENSO series
+COL_GVF   <- "#D55E00"          # vermilion     – GVF series
+COL_GR    <- "#009E73"          # bluish green  – Greenland sulfate
+COL_ANT   <- "#E69F00"          # amber-orange  – Antarctica sulfate
+COL_BASE  <- "#0072B2"          # blue          – baseline price IRF
+COL_VOLC  <- "#D55E00"          # vermilion     – V.F.-controlled IRF
 
 nature_theme <- function(base_size = 13) {
   theme_classic(base_size = base_size) +
@@ -343,20 +343,33 @@ panel_a
 ### Panel b – Grain price IRF overlay
 
 ```{r panel-b, fig.width=5, fig.height=4.5}
-panel_b <- ggplot(irf_grain,
-                  aes(horizon, irf_mean,
-                      colour   = spec, fill = spec, linetype = spec)) +
-  geom_hline(yintercept = 0, colour = "grey65", linewidth = 1.2, linetype = "dashed") +
-  geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.15, colour = NA) +
-  geom_line(linewidth = 1.2) +
+# Baseline: solid line with CI ribbon; V.F.-controlled: dashed overlay, no CI.
+irf_base_only <- dplyr::filter(irf_grain, spec == "Baseline")
+irf_volc_only <- dplyr::filter(irf_grain, spec == "Controlling for V.F.")
+
+panel_b <- ggplot() +
+  geom_hline(yintercept = 0, colour = "grey65", linewidth = 1.0,
+             linetype = "dashed") +
+  # baseline 95% CI ribbon
+  geom_ribbon(data = irf_base_only,
+              aes(x = horizon, ymin = irf_down, ymax = irf_up),
+              fill = COL_BASE, alpha = 0.16, colour = NA) +
+  # baseline line
+  geom_line(data = irf_base_only,
+            aes(x = horizon, y = irf_mean, colour = spec, linetype = spec),
+            linewidth = 1.6) +
+  # controls-for-V.F. line only (dashed vermilion)
+  geom_line(data = irf_volc_only,
+            aes(x = horizon, y = irf_mean, colour = spec, linetype = spec),
+            linewidth = 1.6) +
   scale_x_continuous(breaks = seq(0, 10, 2), expand = c(0.02, 0)) +
-  scale_colour_manual(values   = c(COL_BASE, COL_VOLC)) +
-  scale_fill_manual(values     = c(COL_BASE, COL_VOLC)) +
-  scale_linetype_manual(values = c("solid", "longdash")) +
+  scale_colour_manual(values   = c("Baseline" = COL_BASE,
+                                    "Controlling for V.F." = COL_VOLC)) +
+  scale_linetype_manual(values = c("Baseline" = "solid",
+                                    "Controlling for V.F." = "longdash")) +
   scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
-  guides(colour   = guide_legend(override.aes = list(linewidth = 1.4)),
-         fill     = guide_legend(override.aes = list(alpha = 0.2)),
-         linetype = guide_legend(override.aes = list(linewidth = 1.4))) +
+  guides(colour   = guide_legend(override.aes = list(linewidth = 1.6)),
+         linetype = guide_legend(override.aes = list(linewidth = 1.6))) +
   labs(x = "Horizon (years)", y = "% Grain price response",
        title = "ENSO effect on grain prices") +
   nature_theme()

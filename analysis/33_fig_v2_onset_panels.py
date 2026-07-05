@@ -13,7 +13,7 @@ Reads:
   analysis/output/data/figED_v2_onset_excl_swiss.csv
 
 Saves:
-  analysis/output/figures/extended data/figED_v2_onset_panels.pdf
+  analysis/output/figures/investigation/figED_v2_onset_panels.pdf
 """
 from __future__ import annotations
 from pathlib import Path
@@ -34,7 +34,7 @@ from assemble_figures import (  # noqa: E402
 )
 
 OUT_DATA = SCRIPT_DIR / "output" / "data"
-OUT_ED   = SCRIPT_DIR / "output" / "figures" / "extended data"
+OUT_ED   = SCRIPT_DIR / "output" / "figures" / "investigation"
 OUT_ED.mkdir(parents=True, exist_ok=True)
 
 TIMING_ORDER = ["Lag (t-1)", "Contemporaneous (t)", "Lead (t+1)"]

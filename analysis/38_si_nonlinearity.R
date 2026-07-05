@@ -5,7 +5,7 @@
 # from analysis notebooks/Extended Data.Rmd). Each panel compares linear vs
 # polynomial (quadratic, cubic) NINO3.4 specifications.
 #
-# Panel C (WR teleconnected yields) uses the v2 panel + gold-ticket #3 spec:
+# Panel C (WR teleconnected yields) uses the v2 Ljungqvist panel + main spec:
 #   outcome = log(yield/sd(yield)) (% harvest)
 #   FE      = VarLocationGrain[Year]
 #   controls = i(decade) + l(nino34, 1:3)
@@ -138,7 +138,7 @@ m2_p3  <- feols(f(logprice, 1) - l(logprice, 1) ~ poly(nino34, 3, raw = TRUE) +
 p2 <- make_panel(pp(m2_lin), pp(m2_p2), pp(m2_p3),
                  y_lab = "Log grain price change (h = 1)", tag = "b")
 
-# ── Panel C: WR teleconnected yields, h = 0 (v2 + GT#3) ─────────────────────
+# ── Panel C: WR teleconnected yields, h = 0 (main spec, v2 panel) ───────────
 WR_tele <- yield_v2 |> filter(Grain %in% c("Wheat","Rye"),
                                teleco_PDSI_10 == 1)
 m3_lin <- feols(f(logyield, 0) - l(logyield, 1) ~ nino34 + l(nino34, 1:3) +

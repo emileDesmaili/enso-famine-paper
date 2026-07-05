@@ -8,8 +8,6 @@
 #
 # Appendix CSVs:
 #   figA_irf_FSV.csv
-#   figA_irf_price_ninocheck.csv
-#   figA_irf_fishprice_ninocheck.csv
 #   figA_irf_subsample_price.csv
 #   figA_irf_subsample_20y_price.csv
 #   figA_irf_subsample_fishprice.csv
@@ -476,37 +474,6 @@ export_FSV_irf <- function() {
 
 
 ###############################################################################
-# Appendix: ENSO index robustness – grain prices
-###############################################################################
-export_nino_check_price <- function(data) {
-  nino_dict <- c("Nino1.2"="nino12","Nino3"="nino3","Nino3.4"="nino34","Nino4"="nino4")
-  bind_rows(lapply(names(nino_dict), function(nm) {
-    run_lp_price(data, "logprice", shock = nino_dict[[nm]],
-                 controls = "i(Decade)", hor = 10) |>
-      transmute(index = nm, horizon, irf_mean, irf_up, irf_down)
-  })) |>
-    write.csv(file.path(out_data, "figA_irf_price_ninocheck.csv"), row.names = FALSE)
-  message("Exported figA_irf_price_ninocheck.csv")
-}
-
-
-###############################################################################
-# Appendix: ENSO index robustness – fish prices
-# Deviation-coded LP: bare `shock` = unweighted (Cod+Herring)/2 with native SE.
-###############################################################################
-export_nino_check_fish <- function(fishprice) {
-  nino_dict <- c("Nino1.2"="nino12","Nino3"="nino3","Nino3.4"="nino34","Nino4"="nino4")
-  bind_rows(lapply(names(nino_dict), function(nm) {
-    run_lp_fish_devcoded(fishprice, shock = nino_dict[[nm]],
-                          controls = "i(Decade)", hor = 10) |>
-      transmute(index = nm, horizon, irf_mean, irf_up, irf_down)
-  })) |>
-    write.csv(file.path(out_data, "figA_irf_fishprice_ninocheck.csv"), row.names = FALSE)
-  message("Exported figA_irf_fishprice_ninocheck.csv")
-}
-
-
-###############################################################################
 # Appendix: LOO subsampling (grain prices)
 ###############################################################################
 export_loo_prices <- function(data) {
@@ -728,25 +695,6 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
     theme(panel.grid = element_blank())
 }
 
-.ninocheck_plot <- function(csv_file, y_label, out_file) {
-  path <- file.path(out_data, csv_file)
-  if (!file.exists(path)) { message(csv_file, " not found"); return() }
-  df <- read.csv(path)
-  p <- ggplot(df, aes(x = horizon, y = irf_mean, color = index, fill = index)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    geom_ribbon(aes(ymin = irf_down, ymax = irf_up), alpha = 0.18, color = NA) +
-    geom_line(linewidth = 1.1) +
-    scale_x_continuous(breaks = scales::pretty_breaks()) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-    labs(x = "Horizon (years)", y = y_label,
-         color = "ENSO index", fill = "ENSO index") +
-    theme_classic(base_size = 18) +
-    theme(panel.grid = element_blank(), legend.position = "bottom")
-  ggsave(file.path(fig_out, out_file), p,
-         width = 6, height = 5, device = cairo_pdf)
-  message("Saved ", out_file)
-}
-
 .bootstrap_plot <- function(null_csv, true_csv, y_label, out_file) {
   np <- file.path(out_data, null_csv)
   tp <- file.path(out_data, true_csv)
@@ -774,13 +722,6 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
   ggsave(file.path(fig_out, out_file), p,
          width = 6, height = 5, device = cairo_pdf)
   message("Saved ", out_file)
-}
-
-plot_ninocheck_price <- function() {
-  y_price <- "Price variation"
-  y_fish  <- "Price variation"
-  .ninocheck_plot("figA_irf_price_ninocheck.csv",     y_price, "figA_irf_ninocheck_price.pdf")
-  .ninocheck_plot("figA_irf_fishprice_ninocheck.csv", y_fish,  "figA_irf_ninocheck_fishprice.pdf")
 }
 
 plot_FSV_irf <- function() {
@@ -908,15 +849,12 @@ if (!interactive()) {
   export_se_robust_fish(fishprice)
   export_allen_irf()
   export_FSV_irf()
-  export_nino_check_price(data)
-  export_nino_check_fish(fishprice)
   export_loo_prices(data)
   export_20y_prices(data)
   export_loo_fish(fishprice)
   export_20y_fish(fishprice)
   export_fishcatch_irf(fishcatch)
   export_bootstrap(data, fishprice, n_iter = 500)
-  plot_ninocheck_price()
   plot_allen_irf()
   plot_FSV_irf()
   plot_bootstrap_price()
