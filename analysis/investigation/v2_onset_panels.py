@@ -26,15 +26,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-SCRIPT_DIR = Path(__file__).parent
-sys.path.insert(0, str(SCRIPT_DIR))
+SCRIPT_DIR   = Path(__file__).parent
+ANALYSIS_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(ANALYSIS_DIR))
 
 from assemble_figures import (  # noqa: E402
     _label, _title, _polish, _pct_fmt, FS,
 )
 
-OUT_DATA = SCRIPT_DIR / "output" / "data"
-OUT_ED   = SCRIPT_DIR / "output" / "figures" / "investigation"
+OUT_DATA = ANALYSIS_DIR / "output" / "data"
+OUT_ED   = ANALYSIS_DIR / "output" / "figures" / "investigation"
 OUT_ED.mkdir(parents=True, exist_ok=True)
 
 TIMING_ORDER = ["Lag (t-1)", "Contemporaneous (t)", "Lead (t+1)"]

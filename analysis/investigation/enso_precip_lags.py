@@ -38,11 +38,12 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
 # -- paths --------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).parent
-ROOT       = SCRIPT_DIR.parent
-DATA_RAW   = ROOT / "data"
-DATA_PROC  = ROOT / "processed data"
-OUT_DIR    = SCRIPT_DIR / "output" / "figures" / "investigation"
+SCRIPT_DIR   = Path(__file__).parent
+ANALYSIS_DIR = SCRIPT_DIR.parent
+ROOT         = ANALYSIS_DIR.parent
+DATA_RAW     = ROOT / "data"
+DATA_PROC    = ROOT / "processed data"
+OUT_DIR      = ANALYSIS_DIR / "output" / "figures" / "investigation"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 YEAR_RANGE = slice(1500, 1800)

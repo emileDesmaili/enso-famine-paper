@@ -444,36 +444,12 @@ export_yield_teleco_plots <- function(yield_2023) {
                          "IRF_ENSO_yield_WR_teleco.pdf")
   write.csv(irf_wr, file.path(out_data, "figA_irf_yield_WR_teleco.csv"), row.names = FALSE)
 
-  plot_teleco(noWR, "teleco_PDSI_10",
-              "% Harvest response",
-              "IRF_ENSO_yield_noWR_teleco.pdf")
-
-  # Summer precipitation (AMJJ) partition
+  # Summer precipitation (AMJJ) partition — used in the SI as an alternative
+  # teleconnection criterion.
   if ("teleco_precip_summer_10" %in% names(yield_2023)) {
     plot_teleco(WR, "teleco_precip_summer_10",
                 "% Harvest response\n(AMJJ Precip. partition)",
                 "figA_irf_yield_WR_AMJJ_P.pdf")
-  }
-
-  # Winter precipitation (NDJF) partition
-  if ("teleco_precip_winter_10" %in% names(yield_2023)) {
-    plot_teleco(WR, "teleco_precip_winter_10",
-                "% Harvest response\n(NDJF Precip. partition)",
-                "figA_irf_yield_NDJF_P.pdf")
-  }
-
-  # Winter temperature (NDJF) partition
-  if ("teleco_temp_winter_10" %in% names(yield_2023)) {
-    plot_teleco(WR, "teleco_temp_winter_10",
-                "% Harvest response\n(NDJF Temp. partition)",
-                "figA_irf_yield_NDJF_T.pdf")
-  }
-
-  # Summer temperature (AMJJ) partition
-  if ("teleco_temp_summer_10" %in% names(yield_2023)) {
-    plot_teleco(WR, "teleco_temp_summer_10",
-                "% Harvest response\n(AMJJ Temp. partition)",
-                "figA_irf_yield_AMJJ_T.pdf")
   }
 }
 
@@ -764,9 +740,12 @@ export_irf_geo_partition <- function(yield_2023) {
   final    <- cowplot::plot_grid(combined, legend, ncol = 1,
                                   rel_heights = c(1, 0.12))
 
-  ggsave(file.path(fig_out, "figA_irf_yield_geopartition.pdf"), final,
+  # Extended Data figure – save under figED_ prefix into the ED folder.
+  ed_dir <- file.path(SCRIPT_DIR, "output", "figures", "extended data")
+  dir.create(ed_dir, recursive = TRUE, showWarnings = FALSE)
+  ggsave(file.path(ed_dir, "figED_yield_geopartition.pdf"), final,
          width = 10, height = 5, device = cairo_pdf)
-  message("Saved figA_irf_yield_geopartition.pdf")
+  message("Saved figED_yield_geopartition.pdf")
 }
 
 
