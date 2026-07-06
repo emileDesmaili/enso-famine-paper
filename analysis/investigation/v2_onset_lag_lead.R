@@ -27,9 +27,10 @@ setFixest_notes(FALSE)
   else tryCatch(dirname(normalizePath(sys.frame(1)$ofile)),
                 error = function(e) getwd())
 }
-SCRIPT_DIR <- .script_dir()
-ROOT       <- normalizePath(file.path(SCRIPT_DIR, ".."), mustWork = FALSE)
-OUT_DATA   <- file.path(SCRIPT_DIR, "output", "data")
+SCRIPT_DIR <- if (exists("SCRIPT_PATH_HINT")) dirname(SCRIPT_PATH_HINT) else .script_dir()
+ANALYSIS_DIR <- normalizePath(file.path(SCRIPT_DIR, ".."), mustWork = FALSE)
+ROOT         <- normalizePath(file.path(ANALYSIS_DIR, ".."), mustWork = FALSE)
+OUT_DATA     <- file.path(ANALYSIS_DIR, "output", "data")
 
 data <- read.csv(file.path(ROOT, "processed data",
                            "famine_region_data.csv"))

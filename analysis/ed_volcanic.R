@@ -38,7 +38,7 @@ COL_GR    <- "#0F8B8D"          # teal              – Greenland sulfate
 COL_ANT   <- "#F1A208"          # warm gold         – Antarctica sulfate
 # Panel (b): black baseline + coral V.F.-controlled overlay.
 COL_BASE  <- "black"            # black             – baseline price IRF
-COL_VOLC  <- "#00A79D"          # vibrant teal      – V.F.-controlled IRF
+COL_VOLC  <- "#D62828"          # vibrant firebrick – V.F.-controlled IRF
 # Panel (c): deep blue baseline + lighter blue V.F.-controlled.
 COL_C_BASE <- "#6495ED"         # cornflower blue   – panel-c baseline
 COL_C_VOLC <- "#D62828"         # vibrant firebrick – panel-c V.F.-controlled

@@ -45,10 +45,30 @@
       "Bash(Rscript \"d:/git/enso-famine-paper/analysis/35_ed_nao_jsl_enso.R\")",
       "Bash(mkdir -p \"d:/git/enso-famine-paper/archive/analysis notebooks\" && \\\\ *)",
       "Bash(grep -v \"^-$\")",
-      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to notebook --execute --inplace d:/git/enso-famine-paper/analysis/mechanisms.ipynb)"
+      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to notebook --execute --inplace d:/git/enso-famine-paper/analysis/mechanisms.ipynb)",
+      "Bash(grep -n \"includegraphics\\\\|\\\\\\\\\\\\\\\\input{\" \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(grep -n \"\\\\\\\\\\\\\\\\appendix\\\\|\\\\\\\\\\\\\\\\section\\\\|\\\\\\\\\\\\\\\\subsection\\\\|Supplement\\\\|Extended.Data\\\\|Supplementary\" \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(Rscript \"analysis/run_all.R\")",
+      "Bash(awk 'NR>=634' \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(grep -oE \"\\\\\\\\\\\\\\\\cite[a-z]*\\\\{\")",
+      "Bash(grep -n \"^\\\\\\\\\\\\\\\\end{document}\\\\|\\\\\\\\\\\\\\\\bibliography\" \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(Rscript d:/tmp/_rerun_investig.R)",
+      "Bash(/c/Users/emile/anaconda3/python.exe \"d:/git/enso-famine-paper/analysis/run_all.py\")",
+      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to notebook --execute --inplace \"d:/git/enso-famine-paper/analysis/mechanisms.ipynb\")",
+      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to script d:/git/enso-famine-paper/analysis/maps_data_coverage.ipynb d:/git/enso-famine-paper/analysis/mechanisms.ipynb)",
+      "Bash(/c/Users/emile/anaconda3/python.exe \"d:/git/enso-famine-paper/analysis/assemble_figures.py\")",
+      "Bash(/c/Users/emile/anaconda3/envs/famine-enso/python.exe -c \"import sksurv; print\\(sksurv.__file__\\)\")",
+      "Bash(/c/Users/emile/anaconda3/envs/famine-enso/python.exe \"d:/git/enso-famine-paper/analysis/assemble_figures.py\")",
+      "Bash(bash d:/tmp/_check_whitelist.sh)",
+      "Bash(grep -n \"^\\\\\\\\\\\\\\\\section\\\\|^\\\\\\\\\\\\\\\\subsection\" \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(grep -nE \"\\\\\\\\\\\\\\\\section|\\\\\\\\\\\\\\\\subsection\" \"d:/git/enso-famine-paper/paper/MAIN_REVISED_colored.tex\")",
+      "Bash(/c/Users/emile/anaconda3/python.exe -m jupyter nbconvert --to script process_Famines.ipynb process_federico_prices.ipynb process_fishcatch.ipynb process_fishprices.ipynb process_lungqvist_prices.ipynb)",
+      "Bash(rm -v Big_DF_H.csv fish_catch_europe.xlsx fish_catch_europe2.csv ModE-Sim_s14203_forc_1-3.tar ModE-Sim_s14203_forc_11-14.tar ModE-Sim_s14203_forc_15-18.tar ModE-Sim_s14203_forc_19-20.tar ModE-Sim_s14203_forc_4-6.tar ModE-Sim_s14203_forc_7-10.tar)",
+      "Bash(rm -rvf modesim_cache)"
     ],
     "additionalDirectories": [
-      "d:\\git\\enso-famine-paper\\analysis notebooks"
+      "d:\\git\\enso-famine-paper\\analysis notebooks",
+      "D:\\git\\enso-famine-paper\\analysis\\investigation"
     ]
   }
 }

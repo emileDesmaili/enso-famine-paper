@@ -498,16 +498,32 @@ def _draw_2C_chron(ax_top, ax_bot, df_chron, onset_raw):
 
     nino_a = df_chron.groupby("Year")["NINO34_actual"].first().reindex(years, fill_value=0).values
     nino_c = df_chron.groupby("Year")["NINO34_counterfactual"].first().reindex(years, fill_value=0).values
-    ax_bot.plot(years, nino_a, color="crimson",    lw=1.4, label="Observed",       alpha=0.85)
-    ax_bot.plot(years, nino_c, color="dodgerblue", lw=1.4, label="Counterfactual", alpha=0.9)
+    ax_bot.plot(years, nino_a, color="crimson",    lw=1.4, alpha=0.85)
+    ax_bot.plot(years, nino_c, color="dodgerblue", lw=1.4, alpha=0.9)
+    # Highlight the ENSO-attributable famine years: any region-year where
+    # the ML model predicts a famine under the observed climate but NOT under
+    # the counterfactual (i.e. Observed = 1 and Counterfactual = 0).
+    import numpy as _np
+    _yr_arr = _np.asarray(years)
+    enso_famine_years = df_chron.loc[
+        (df_chron["Observed"] == 1) & (df_chron["Counterfactual"] == 0),
+        "Year"
+    ].unique()
+    _mask = _np.isin(_yr_arr, enso_famine_years)
+    ax_bot.scatter(_yr_arr[_mask], nino_a[_mask],
+                   s=42, color="crimson", edgecolor="crimson",
+                   zorder=5, alpha=0.95)
     ax_bot.axhline(0, color="black", lw=0.8, linestyle="-", alpha=0.3)
     ax_bot.set_xlim(ymin - 1, ymax + 1)
-    ax_bot.set_xlabel("Year")
+    ax_bot.set_xlabel("")
     ax_bot.set_ylabel("NINO3.4 (°C)")
-    leg = ax_bot.legend(loc="lower right", frameon=True, fontsize=FS,
-                        framealpha=0.9, edgecolor="gray",
-                        handlelength=2.0, labelspacing=0.4)
-    leg.get_frame().set_linewidth(0.8)
+    # In-panel annotations in each series' colour, corners of the panel
+    ax_bot.text(0.02, 0.05, "Observed", transform=ax_bot.transAxes,
+                color="crimson", fontsize=FS, fontweight="bold",
+                ha="left", va="bottom")
+    ax_bot.text(0.98, 0.05, "Counterfactual", transform=ax_bot.transAxes,
+                color="dodgerblue", fontsize=FS, fontweight="bold",
+                ha="right", va="bottom")
     _polish(ax_bot)
 
 
@@ -534,6 +550,7 @@ def _draw_2E(ax, in_sample_acc, cv_scores):
                 color="black", fmt="none", capsize=0, elinewidth=1.5)
     ax.set_xlim(0, 1)
     ax.set_xlabel("Accuracy", fontsize=LAB + 2)
+    ax.set_ylabel("")
     ax.tick_params(axis="both", labelsize=FS + 2)
     _title(ax, "Prediction skill")
     _polish(ax)
@@ -549,7 +566,7 @@ def make_fig2():
         print("  Running ML onset classifier …")
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+            "ml07", Path(__file__).parent / "ml_onset_survival.py")
         ml07 = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ml07)
         ml = ml07.run_onset_classifier()
@@ -701,6 +718,9 @@ def _draw_teleco_map(ax, corr_vals, p_vals, lat2d, lon2d,
     # Yield record locations – purple = teleconnected (PDSI p<0.10), white = not
     import pandas as _pd
     _yield = _pd.read_csv(DATA_PROC / "yield_ljungqvist_v2.csv")
+    # v2 has 'Latitude'/'Longitude'; earlier versions used 'lat'/'lon'.
+    if "lat" not in _yield.columns:
+        _yield = _yield.rename(columns={"Latitude": "lat", "Longitude": "lon"})
     _ylocs = (
         _yield.groupby(["lat", "lon"])
         .agg(teleco=("teleco_PDSI_10", "max"))
@@ -1046,7 +1066,7 @@ def make_fig4():
         print("  Running ML survival models …")
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "ml07", Path(__file__).parent / "07_ml_onset_survival.py")
+            "ml07", Path(__file__).parent / "ml_onset_survival.py")
         ml07 = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ml07)
         methods, means, errors, perm_dfs = ml07.run_survival_ml()

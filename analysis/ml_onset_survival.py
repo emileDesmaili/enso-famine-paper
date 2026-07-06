@@ -138,7 +138,7 @@ def run_onset_classifier():
     ]
     save_suffixes = [
         "NINO34", "NINO_conflict", "Nino_conflict_temp",
-        "nino_conflict_precip", "All_features",
+        "Nino_conflict_precip", "All_features",
     ]
 
     param_grid = {
@@ -213,10 +213,13 @@ def run_onset_classifier():
         print(f"[{suffix}] OOS F1: {oos_f1:.3f}")
         all_models.append((suffix, best, best_thr, X, y, oos_f1))
 
-        _save_chronology_pdf(df_chron, onset, suffix)
-        _save_importances_pdf(df_imp, suffix)
-        _save_skill_pdf(in_sample_acc, cv_scores, suffix)
-        _save_counts_pdf(df_chron, suffix)
+        # Skip the four per-suffix PDFs for the "All_features" variant —
+        # they are not used in the paper (only the confusion/ROC PDF is).
+        if suffix != "All_features":
+            _save_chronology_pdf(df_chron, onset, suffix)
+            _save_importances_pdf(df_imp, suffix)
+            _save_skill_pdf(in_sample_acc, cv_scores, suffix)
+            _save_counts_pdf(df_chron, suffix)
 
         if suffix == "All_features":
             _save_confusion_roc_pdf(best, X, y, threshold=best_thr,
