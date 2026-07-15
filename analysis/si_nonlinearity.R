@@ -127,13 +127,13 @@ p1 <- make_panel(pp(m1_lin), pp(m1_p2), pp(m1_p3),
                  y_lab = "P(famine onset)", tag = "a")
 
 # ── Panel B: grain prices, h = 1 ────────────────────────────────────────────
-m2_lin <- feols(f(logprice, 1) - l(logprice, 1) ~ nino34 + i(Decade) | Location,
+m2_lin <- feols(f(logprice, 1) - l(logprice, 1) ~ nino34 + i(Decade) | Location[Year],
                 data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
 m2_p2  <- feols(f(logprice, 1) - l(logprice, 1) ~ poly(nino34, 2, raw = TRUE) +
-                  i(Decade) | Location,
+                  i(Decade) | Location[Year],
                 data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
 m2_p3  <- feols(f(logprice, 1) - l(logprice, 1) ~ poly(nino34, 3, raw = TRUE) +
-                  i(Decade) | Location,
+                  i(Decade) | Location[Year],
                 data = price, panel.id = c("Location","Year"), vcov = DK ~ Year)
 p2 <- make_panel(pp(m2_lin), pp(m2_p2), pp(m2_p3),
                  y_lab = "Log grain price change (h = 1)", tag = "b")
@@ -159,15 +159,15 @@ p3 <- make_panel(pp(m3_lin), pp(m3_p2), pp(m3_p3),
                  y_lab = "Log yield change (h = 0)", tag = "c")
 
 # ── Panel D: fish prices, h = 3 ─────────────────────────────────────────────
-m4_lin <- feols(f(logprice, 3) - l(logprice, 1) ~ nino34 + i(Decade) | LocationSpecies,
+m4_lin <- feols(f(logprice, 3) - l(logprice, 1) ~ nino34 + i(Decade) | LocationSpecies[Year],
                 data = fishprice, panel.id = c("LocationSpecies","Year"),
                 vcov = DK ~ Year)
 m4_p2  <- feols(f(logprice, 3) - l(logprice, 1) ~ poly(nino34, 2, raw = TRUE) +
-                  i(Decade) | LocationSpecies,
+                  i(Decade) | LocationSpecies[Year],
                 data = fishprice, panel.id = c("LocationSpecies","Year"),
                 vcov = DK ~ Year)
 m4_p3  <- feols(f(logprice, 3) - l(logprice, 1) ~ poly(nino34, 3, raw = TRUE) +
-                  i(Decade) | LocationSpecies,
+                  i(Decade) | LocationSpecies[Year],
                 data = fishprice, panel.id = c("LocationSpecies","Year"),
                 vcov = DK ~ Year)
 p4 <- make_panel(pp(m4_lin), pp(m4_p2), pp(m4_p3),

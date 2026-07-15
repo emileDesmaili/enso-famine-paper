@@ -316,7 +316,11 @@ export_yield63_irf <- function() {
       panel_id     = c("fid", "Year"),
       vcov_formula = DK ~ Year
     ) |>
-      transmute(controls = nm, horizon, irf_mean, irf_up, irf_down)
+      transmute(controls = nm, horizon, irf_mean, se,
+                irf_up95  = irf_mean + 1.960 * se,
+                irf_down95 = irf_mean - 1.960 * se,
+                irf_up90  = irf_mean + 1.645 * se,
+                irf_down90 = irf_mean - 1.645 * se)
   })) |>
     write.csv(file.path(out_data, "figA_irf_yield63.csv"), row.names = FALSE)
   message("Exported figA_irf_yield63.csv")
@@ -567,30 +571,51 @@ plot_yield63 <- function() {
   path <- file.path(out_data, "figA_irf_yield63.csv")
   if (!file.exists(path)) { message("figA_irf_yield63.csv not found"); return() }
   df <- read.csv(path)
-  n_ctrl  <- length(unique(df$controls))
-  offsets <- seq(-0.1, 0.1, length.out = n_ctrl)
-  df      <- df |>
-    dplyr::group_by(controls) |>
-    dplyr::mutate(offset = offsets[dplyr::cur_group_id()]) |>
-    dplyr::ungroup()
-  p <- ggplot(df, aes(x = horizon + offset, y = irf_mean, color = controls)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    geom_errorbar(aes(ymin = irf_down, ymax = irf_up), width = 0.1, linewidth = 0.9) +
-    geom_point(size = 2.5) +
-    scale_x_continuous(breaks = scales::pretty_breaks()) +
+
+  ctrl_levels <- c("Base", "Climate", "Conflict", "Climate + Conflict")
+  df <- df |>
+    dplyr::mutate(controls = factor(controls, levels = ctrl_levels))
+
+  # Small horizontal jitter so overlapping whiskers stay legible
+  n_ctrl  <- length(ctrl_levels)
+  offsets <- seq(-0.18, 0.18, length.out = n_ctrl)
+  df <- df |>
+    dplyr::mutate(offset = offsets[as.integer(controls)])
+
+  # Okabe-Ito colorblind-safe palette
+  pal <- c(
+    "Base"               = "#0072B2",   # blue
+    "Climate"            = "#009E73",   # bluish green
+    "Conflict"           = "#D55E00",   # vermillion
+    "Climate + Conflict" = "#CC79A7"    # reddish purple
+  )
+
+  p <- ggplot(df, aes(x = horizon + offset, y = irf_mean, colour = controls)) +
+    geom_hline(yintercept = 0, linetype = "dashed",
+               colour = "grey40", linewidth = 0.4) +
+    geom_linerange(aes(ymin = irf_down95, ymax = irf_up95),
+                   linewidth = 0.55, alpha = 0.85) +
+    geom_linerange(aes(ymin = irf_down90, ymax = irf_up90),
+                   linewidth = 1.7, alpha = 0.85) +
+    geom_point(size = 2.6, shape = 21, fill = "white", stroke = 0.9) +
+    scale_x_continuous(breaks = sort(unique(df$horizon))) +
     scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_colour_manual(values = pal) +
     labs(x = "Horizon (years)",
          y = "% Harvest response",
-         color = "Controls") +
-    theme_classic(base_size = 18) +
-    theme(panel.grid = element_blank(),
+         colour = "Controls") +
+    theme_classic(base_size = 16) +
+    theme(panel.grid       = element_blank(),
           legend.position  = "bottom",
           legend.box       = "horizontal",
           legend.text      = element_text(size = 11),
           legend.title     = element_text(size = 11),
           plot.margin      = margin(5, 5, 5, 5)) +
-    guides(color = guide_legend(nrow = 2, byrow = TRUE,
-                                title.position = "top"))
+    guides(colour = guide_legend(nrow = 1, byrow = TRUE,
+                                 title.position = "left",
+                                 override.aes = list(linewidth = 1.2,
+                                                     size = 3)))
+
   ggsave(file.path(fig_out, "figA_irf_yield63.pdf"), p,
          width = 8, height = 6, device = cairo_pdf)
   message("Saved figA_irf_yield63.pdf")

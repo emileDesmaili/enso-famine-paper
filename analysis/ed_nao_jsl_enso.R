@@ -193,8 +193,8 @@ price_sc <- price %>%
   mutate(across(all_of(sd_vars), ~ .x / sd(.x, na.rm = TRUE)))
 
 datasets <- list(
-  list(data = fishprice_sc, name = "Fish prices",   panel_id = c("LocationSpecies", "Year"), fe = "LocationSpecies + Decade"),
-  list(data = price_sc,     name = "Grain prices",  panel_id = c("Location", "Year"),        fe = "Location + Decade")
+  list(data = fishprice_sc, name = "Fish prices",   panel_id = c("LocationSpecies", "Year"), fe = "LocationSpecies[Year] + Decade"),
+  list(data = price_sc,     name = "Grain prices",  panel_id = c("Location", "Year"),        fe = "Location[Year] + Decade")
 )
 
 irf_all <- map_dfr(datasets, function(d) {

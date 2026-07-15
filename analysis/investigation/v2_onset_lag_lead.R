@@ -53,8 +53,10 @@ fit_one <- function(mod_label, fml, vcov_arg) {
                 else "Contemporaneous (t)"
     data.frame(model = mod_label, term = p, timing = lag_type,
                estimate = co[p], se = se[p],
-               conf.low  = co[p] - 1.96 * se[p],
-               conf.high = co[p] + 1.96 * se[p])
+               conf.low    = co[p] - 1.96  * se[p],
+               conf.high   = co[p] + 1.96  * se[p],
+               conf.low90  = co[p] - 1.645 * se[p],
+               conf.high90 = co[p] + 1.645 * se[p])
   }))
 }
 

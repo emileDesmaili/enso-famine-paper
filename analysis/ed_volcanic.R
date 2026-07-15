@@ -181,14 +181,14 @@ run_lp <- function(df, controls, fe, panel_id) {
 irf_grain_base <- run_lp(
   price,
   controls = "i(Decade) + l(nino34, 1:3)",
-  fe       = "Location",
+  fe       = "Location[Year]",
   panel_id = c("Location", "Year")
 ) %>% mutate(spec = "Baseline")
 
 irf_grain_volc <- run_lp(
   price %>% drop_na(GVF),
   controls = "i(Decade) + GVF + greenland_sulfate + antarctica_sulfate + l(nino34, 1:3)",
-  fe       = "Location",
+  fe       = "Location[Year]",
   panel_id = c("Location", "Year")
 ) %>% mutate(spec = "Controlling for V.F.")
 
@@ -390,7 +390,7 @@ irf_gvf_grain <- lp_panel(
   main_var     = "GVF",
   controls     = "i(Decade) + nino34",
   horizon      = 10,
-  fe           = "Location",
+  fe           = "Location[Year]",
   panel_id     = c("Location", "Year"),
   vcov_formula = DK ~ Year
 ) %>% mutate(forcing = "Global V.F. (GVF)")
@@ -402,7 +402,7 @@ irf_gvf_gr <- lp_panel(
   main_var     = "greenland_sulfate",
   controls     = "i(Decade) + nino34",
   horizon      = 10,
-  fe           = "Location",
+  fe           = "Location[Year]",
   panel_id     = c("Location", "Year"),
   vcov_formula = DK ~ Year
 ) %>% mutate(forcing = "Greenland sulfate")
@@ -413,7 +413,7 @@ irf_gvf_ant <- lp_panel(
   main_var     = "antarctica_sulfate",
   controls     = "i(Decade) + nino34",
   horizon      = 10,
-  fe           = "Location",
+  fe           = "Location[Year]",
   panel_id     = c("Location", "Year"),
   vcov_formula = DK ~ Year
 ) %>% mutate(forcing = "Antarctica sulfate")

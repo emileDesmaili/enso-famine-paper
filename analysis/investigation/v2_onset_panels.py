@@ -40,30 +40,42 @@ OUT_ED.mkdir(parents=True, exist_ok=True)
 
 TIMING_ORDER = ["Lag (t-1)", "Contemporaneous (t)", "Lead (t+1)"]
 MODEL_ORDER  = ["No FEs", "FEs", "FEs + Controls"]
-COLORS_MODEL = {"No FEs": "gray",
-                "FEs":    "black",
-                "FEs + Controls": "firebrick"}
+COLORS_MODEL = {"No FEs":         "#6495ED",
+                "FEs":            "#E63946",
+                "FEs + Controls": "#DAA520"}
 SAMPLE_ORDER  = ["Original", "Excl Swiss famines"]
-COLORS_SAMPLE = {"Original": "black", "Excl Swiss famines": "firebrick"}
+COLORS_SAMPLE = {"Original": "#6495ED", "Excl Swiss famines": "#E63946"}
+
+
+def _twotier_errorbar(ax, x, sub, color, label):
+    """Draw 95% CI as thin whisker + 90% CI as thick whisker + big marker."""
+    ax.errorbar(x, sub["estimate"],
+                yerr=[sub["estimate"] - sub["conf.low"],
+                      sub["conf.high"] - sub["estimate"]],
+                fmt="none", ecolor=color, elinewidth=2.2,
+                capsize=0, zorder=3)
+    ax.errorbar(x, sub["estimate"],
+                yerr=[sub["estimate"] - sub["conf.low90"],
+                      sub["conf.high90"] - sub["estimate"]],
+                fmt="o", color=color, ecolor=color, elinewidth=4.8,
+                capsize=0, ms=14, mec="white", mew=1.2,
+                label=label, zorder=4)
 
 
 def _panel_a(ax):
     df = pd.read_csv(OUT_DATA / "figED_v2_onset_lag_lead.csv")
     x = np.arange(len(TIMING_ORDER))
-    offsets = np.linspace(-0.22, 0.22, len(MODEL_ORDER))
+    offsets = np.linspace(-0.24, 0.24, len(MODEL_ORDER))
     for mod, off in zip(MODEL_ORDER, offsets):
         sub = df[df["model"] == mod].set_index("timing").reindex(TIMING_ORDER)
-        ax.errorbar(x + off, sub["estimate"],
-                    yerr=[sub["estimate"] - sub["conf.low"],
-                          sub["conf.high"] - sub["estimate"]],
-                    fmt="o", color=COLORS_MODEL[mod], elinewidth=2.4,
-                    capsize=0, ms=10, label=mod, zorder=3)
+        _twotier_errorbar(ax, x + off, sub, COLORS_MODEL[mod], mod)
     ax.axhline(0, color="gray", lw=0.8, linestyle="--")
     ax.set_xticks(x); ax.set_xticklabels(TIMING_ORDER)
     ax.set_ylabel("Δ Famine-start probability\nper +1°C NINO3.4")
     _pct_fmt(ax)
     _title(ax, "Central Europe: ENSO timing")
-    ax.legend(loc="best", frameon=False, fontsize=FS - 2)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=3,
+              frameon=False, fontsize=FS - 2)
     _polish(ax)
 
 
@@ -71,20 +83,17 @@ def _panel_b(ax):
     df = pd.read_csv(OUT_DATA / "figED_v2_onset_excl_swiss.csv")
     ce = df[df["Region"] == "Central Europe"]
     x = np.arange(len(MODEL_ORDER))
-    offsets = np.linspace(-0.18, 0.18, len(SAMPLE_ORDER))
+    offsets = np.linspace(-0.20, 0.20, len(SAMPLE_ORDER))
     for sample, off in zip(SAMPLE_ORDER, offsets):
         sub = ce[ce["sample"] == sample].set_index("model").reindex(MODEL_ORDER)
-        ax.errorbar(x + off, sub["estimate"],
-                    yerr=[sub["estimate"] - sub["conf.low"],
-                          sub["conf.high"] - sub["estimate"]],
-                    fmt="o", color=COLORS_SAMPLE[sample], elinewidth=2.4,
-                    capsize=0, ms=10, label=sample, zorder=3)
+        _twotier_errorbar(ax, x + off, sub, COLORS_SAMPLE[sample], sample)
     ax.axhline(0, color="gray", lw=0.8, linestyle="--")
     ax.set_xticks(x); ax.set_xticklabels(MODEL_ORDER)
     ax.set_ylabel("Δ CE famine-start probability\nper +1°C NINO3.4")
     _pct_fmt(ax)
     _title(ax, "Central Europe: original vs Swiss-excluded chronology")
-    ax.legend(loc="best", frameon=False, fontsize=FS - 2)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2,
+              frameon=False, fontsize=FS - 2)
     _polish(ax)
 
 

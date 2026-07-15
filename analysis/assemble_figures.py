@@ -136,7 +136,7 @@ IRF_LS   = {"All regions":        "-",
 def _draw_irf(ax, df, group_col, y_label,
               ribbon_group=None, ylim=None,
               col_map=IRF_COL, fill_map=IRF_FILL, ls_map=IRF_LS,
-              legend_kw=None):
+              legend_kw=None, lw=2.4):
     """Generic IRF ribbon+line plot from a tidy dataframe."""
     groups      = df[group_col].unique()
     has_nloc    = "n_loc" in df.columns
@@ -153,7 +153,7 @@ def _draw_irf(ax, df, group_col, y_label,
         if g in ribbon_set:
             ax.fill_between(sub["horizon"], sub["irf_down"], sub["irf_up"],
                             color=fill, alpha=0.20)
-        ax.plot(sub["horizon"], sub["irf_mean"], color=col, lw=2.4,
+        ax.plot(sub["horizon"], sub["irf_mean"], color=col, lw=lw,
                 linestyle=ls, label=leg_label)
     ax.axhline(0, color="gray", lw=0.8, linestyle="--")
     ax.set_xlabel("Horizon (years)")
@@ -311,7 +311,7 @@ def _draw_1C(ax, data, region_colors):
         if r not in region_centers:
             continue
         col = region_colors.get(r, "steelblue")
-        # Lighter tint for famine periods bar (same hue, higher lightness)
+        # Lighter tint for famine episodes bar (same hue, higher lightness)
         col_light = tuple(min(1.0, c + 0.35) for c in col) if isinstance(col, tuple) \
                     else col
         x, y = region_centers[r]
@@ -333,10 +333,10 @@ def _draw_1C(ax, data, region_colors):
         )
         ax.add_artist(ab)
 
-    ax.legend(handles=[Patch(color="dimgray",  label="Famine Years (left bar)"),
-                        Patch(color="lightgray", label="Famine Periods (right bar)")],
-              loc="upper left", fontsize=FS, frameon=False,
-              prop={"weight": "bold"})
+    ax.legend(handles=[Patch(color="dimgray",  label="Famine Years (left)"),
+                        Patch(color="lightgray", label="Famine Episodes (right)")],
+              loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=2,
+              fontsize=FS, frameon=False, prop={"weight": "bold"})
 
 
 def make_fig1():
@@ -1142,7 +1142,7 @@ def make_fig5():
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(18, 7))
 
     _draw_irf(ax_a, df_a, "label", "Price variation",
-              ribbon_group="All regions",
+              ribbon_group="All regions", lw=3.2,
               legend_kw=dict(loc="lower left", ncol=2, fontsize=FS - 2,
                              columnspacing=0.8, handlelength=1.5))
     _title(ax_a, "Grain price response to ENSO")
@@ -1152,7 +1152,9 @@ def make_fig5():
     ax_a.set_ylabel(ax_a.get_ylabel(), fontsize=LAB + 1)
 
     _draw_irf(ax_b, df_b, "species", "Price variation",
-              ribbon_group="All")
+              ribbon_group="All", lw=3.2,
+              legend_kw=dict(loc="lower left", ncol=1, fontsize=FS - 2,
+                             columnspacing=0.8, handlelength=1.5))
     _title(ax_b, "Fish price response to ENSO")
     _label(ax_b, "b")
     ax_b.tick_params(axis="both", labelsize=FS + 1)
