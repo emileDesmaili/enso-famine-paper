@@ -112,7 +112,9 @@ run_one <- function(df, label_tag) {
   ) |>
     filter(grepl("nino34", term)) |>
     mutate(Region = trimws(gsub("nino34:Region", "", term)),
-           sample = label_tag)
+           sample = label_tag,
+           conf.low90  = estimate - 1.645 * std.error,
+           conf.high90 = estimate + 1.645 * std.error)
 }
 
 res_full <- run_one(data,      "Original")

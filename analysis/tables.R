@@ -37,6 +37,115 @@ dir.create(OUT_TAB, recursive = TRUE, showWarnings = FALSE)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# HELPER — cumulative DL table writer
+# Fits are assumed to have LHS d(y) and RHS l(nino34, 0:3) + controls | FE.
+# Under a level DL  y_t = Σ β_k x_{t-k},  the differenced coefficients satisfy
+# γ_k = β_k − β_{k-1}, so cumulative sums Σ_{k=0}^{h} γ_k recover the level
+# impulse response β_h.  Driscoll-Kraay SEs applied via vcov(m, vcov = DK ~ Year).
+# ══════════════════════════════════════════════════════════════════════════════
+save_cum_dl_table <- function(models, output_path,
+                              title, label, dep_label,
+                              fe_rows,
+                              varying_slopes_rows = NULL,
+                              lag_names = c("l(nino34, 0)", "l(nino34, 1)",
+                                            "l(nino34, 2)", "l(nino34, 3)"),
+                              vcov_formula = DK ~ Year) {
+
+  cum_effect <- function(m, k) {
+    V <- vcov(m, vcov = vcov_formula)
+    b <- coef(m)[lag_names]
+    V <- V[lag_names, lag_names]
+    L <- c(rep(1, k + 1), rep(0, length(lag_names) - k - 1))
+    est_val <- sum(L * b)
+    se_val  <- sqrt(as.numeric(t(L) %*% V %*% L))
+    z       <- est_val / se_val
+    p       <- 2 * (1 - pnorm(abs(z)))
+    list(est = est_val, se = se_val, p = p)
+  }
+
+  stars <- function(p) {
+    if (is.na(p)) return("")
+    if (p < 0.01)      "$^{***}$"
+    else if (p < 0.05) "$^{**}$"
+    else if (p < 0.1)  "$^{*}$"
+    else               ""
+  }
+  fmt_est <- function(r) paste0(sprintf("%.4f", r$est), stars(r$p))
+  fmt_se  <- function(r) sprintf("(%.4f)", r$se)
+
+  row_labels <- c(
+    "NINO3.4 T (sum lag 0)",
+    "NINO3.4 T to T-1 (sum lags 0-1)",
+    "NINO3.4 T to T-2 (sum lags 0-2)",
+    "NINO3.4 T to T-3 (sum lags 0-3)"
+  )
+
+  make_body_row <- function(k) {
+    rs   <- lapply(models, cum_effect, k = k)
+    ests <- vapply(rs, fmt_est, character(1))
+    ses  <- vapply(rs, fmt_se,  character(1))
+    c(
+      paste0("      ", format(row_labels[k + 1], width = 35),
+             " & ", paste(ests, collapse = " & "), "\\\\"),
+      paste0("      ", strrep(" ", 35),
+             " & ", paste(ses,  collapse = " & "), "\\\\")
+    )
+  }
+  body_rows <- unlist(lapply(0:(length(lag_names) - 1), make_body_row))
+
+  n_obs <- vapply(models, function(m) as.integer(nobs(m)), integer(1))
+  r2    <- vapply(models, function(m) as.numeric(fitstat(m, "r2")$r2), numeric(1))
+
+  fmt_row <- function(name, vals)
+    paste0("      ", format(name, width = 35), " & ",
+           paste(sprintf("%-13s", vals), collapse = " & "), "\\\\")
+
+  fe_tex <- vapply(names(fe_rows),
+                   function(nm) fmt_row(nm, fe_rows[[nm]]),
+                   character(1))
+
+  vs_tex <- if (!is.null(varying_slopes_rows)) {
+    c("      \\midrule",
+      "      \\emph{Varying Slopes}\\\\",
+      vapply(names(varying_slopes_rows),
+             function(nm) fmt_row(nm, varying_slopes_rows[[nm]]),
+             character(1)))
+  } else character(0)
+
+  tex <- c(
+    "",
+    "\\begin{table}[htbp]",
+    paste0("   \\caption{\\label{", label, "} ", title, "}"),
+    "   \\centering",
+    "   \\begin{tabular}{lcccc}",
+    "      \\tabularnewline \\midrule \\midrule",
+    paste0("      Dependent Variable: & \\multicolumn{4}{c}{", dep_label, "}\\\\"),
+    "      Model:              & (1)           & (2)           & (3)           & (4)\\\\",
+    "      \\midrule",
+    "      \\emph{Cumulative NINO3.4 effects}\\\\",
+    body_rows,
+    "      \\midrule",
+    fe_tex,
+    vs_tex,
+    "      \\midrule",
+    "      \\emph{Fit statistics}\\\\",
+    fmt_row("Observations", format(n_obs, big.mark = ",")),
+    fmt_row("R$^2$",        sprintf("%.5f", r2)),
+    "      \\midrule \\midrule",
+    "      \\multicolumn{5}{l}{\\emph{Driscoll-Kraay (L=4) standard-errors in parentheses}}\\\\",
+    "      \\multicolumn{5}{l}{\\emph{Signif. Codes: ***: 0.01, **: 0.05, *: 0.1}}\\\\",
+    "   \\end{tabular}",
+    "\\end{table}",
+    "",
+    ""
+  )
+
+  writeLines(tex, output_path)
+  cat("Saved", basename(output_path), "\n")
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 1. GRAIN PRICES – summary + FE-DL
 # ══════════════════════════════════════════════════════════════════════════════
 save_price_tables <- function() {
@@ -66,55 +175,36 @@ save_price_tables <- function() {
     )
   cat("Saved summary_price.tex\n")
 
-  ## 1b. FE-DL regressions
-  est1 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) | Location,
+  ## 1b. FE-DL regressions on Δ log price (cumulative sums recover level β_h).
+  ## Location[Year] adds a Location-specific linear trend on the differenced
+  ## series (= Location-specific parabolic trend on level logprice).
+  est1 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) | Location[Year],
                 data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-  est2 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
+  est2 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
                   PDSI + temp_summer + temp_winter + precip_summer + precip_winter |
-                  Location,
+                  Location[Year],
                 data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-  est3 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
-                  ongoing_wars + log(1 + Deaths) | Location,
+  est3 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
+                  ongoing_wars + log(1 + Deaths) | Location[Year],
                 data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
-  est4 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
+  est4 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
                   PDSI + temp_summer + temp_winter + precip_summer + precip_winter +
-                  ongoing_wars + log(1 + Deaths) | Location,
+                  ongoing_wars + log(1 + Deaths) | Location[Year],
                 data = data, panel.id = c("Location", "Year"), vcov = DK ~ Year)
 
-  dict_price <- c(
-    "l(nino34, 0)"    = "NINO3.4 T",
-    "nino34"          = "NINO3.4 T",
-    "l(nino34, 1)"    = "NINO3.4 T-1",
-    "l(nino34, 2)"    = "NINO3.4 T-2",
-    "l(nino34, 3)"    = "NINO3.4 T-3",
-    "ongoing_wars"    = "Ongoing Wars",
-    "log(1+Deaths)"   = "Log(1+Deaths)",
-    "PDSI"            = "PDSI",
-    "temp_summer"     = "Summer Temp",
-    "temp_winter"     = "Winter Temp",
-    "precip_summer"   = "Summer Precip",
-    "precip_winter"   = "Winter Precip",
-    "logprice"        = "Log Grain Price"
+  save_cum_dl_table(
+    list(est1, est2, est3, est4),
+    output_path = file.path(OUT_TAB, "Ljungqvist_ENSO_price_main.tex"),
+    title       = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Grain Prices --- Cumulative $\\Delta$ Log Response.",
+    label       = "tab:grainprice_FE",
+    dep_label   = "$\\Delta$ Log Grain Price",
+    fe_rows = list(
+      "Decade FE"                = rep("Yes", 4),
+      "Location FE"              = rep("Yes", 4),
+      "Location-specific trend"  = rep("Yes", 4),
+      "Controls"                 = c("None", "Climate", "Conflict", "Climate + Conflict")
+    )
   )
-
-  etable(
-    est1, est2, est3, est4,
-    vcov         = DK ~ Year,
-    keep         = "%nino34",
-    dict         = dict_price,
-    label        = "tab:grainprice_FE",
-    title        = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Grain Prices",
-    drop.section = "fixef",
-    fitstat      = c("n", "r2"),
-    extralines   = list(
-      "Decade FE"   = c("Yes", "Yes", "Yes", "Yes"),
-      "Location FE" = c("Yes", "Yes", "Yes", "Yes"),
-      "Controls"    = c("None", "Climate", "Conflict", "Climate + Conflict")
-    ),
-    file    = file.path(OUT_TAB, "Ljungqvist_ENSO_price_main.tex"),
-    replace = TRUE
-  )
-  cat("Saved Ljungqvist_ENSO_price_main.tex\n")
 }
 
 
@@ -177,65 +267,45 @@ save_yield_tables <- function() {
     )
   cat("Saved summary_yield_YR.tex\n")
 
-  ## 2c. FE-DL regression: pooled wheat/rye harvest, NINO3.4 lags 0..3
+  ## 2c. FE-DL on Δ log yield (cumulative sums recover level β_h).
+  ## Per-unit linear trend in levels becomes a constant after differencing,
+  ## absorbed by the VarLocationGrain FE — [Year] varying slope dropped.
   WR <- yield_2023 %>% filter(Grain %in% c("Wheat", "Rye"))
   est1 <- feols(
-    logyield ~ l(nino34, 0:3) + i(decade) | VarLocationGrain[Year],
-    data = WR, panel.id = c("VarLocationGrain", "Year")
+    d(logyield) ~ l(nino34, 0:3) + i(decade) | VarLocationGrain,
+    data = WR, panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year
   )
   est2 <- feols(
-    logyield ~ l(nino34, 0:3) + i(decade) +
+    d(logyield) ~ l(nino34, 0:3) + i(decade) +
       PDSI + temp_summer + temp_winter + precip_summer + precip_winter |
-      VarLocationGrain[Year],
-    data = WR, panel.id = c("VarLocationGrain", "Year")
+      VarLocationGrain,
+    data = WR, panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year
   )
   est3 <- feols(
-    logyield ~ l(nino34, 0:3) + i(decade) +
-      ongoing_wars + log(1 + Deaths) | VarLocationGrain[Year],
-    data = WR, panel.id = c("VarLocationGrain", "Year")
+    d(logyield) ~ l(nino34, 0:3) + i(decade) +
+      ongoing_wars + log(1 + Deaths) | VarLocationGrain,
+    data = WR, panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year
   )
   est4 <- feols(
-    logyield ~ l(nino34, 0:3) + i(decade) +
+    d(logyield) ~ l(nino34, 0:3) + i(decade) +
       ongoing_wars + log(1 + Deaths) +
       temp_summer + temp_winter + precip_summer + precip_winter |
-      VarLocationGrain[Year],
-    data = WR, panel.id = c("VarLocationGrain", "Year")
+      VarLocationGrain,
+    data = WR, panel.id = c("VarLocationGrain", "Year"), vcov = DK ~ Year
   )
 
-  dict_yield <- c(
-    "l(nino34, 0)"        = "NINO3.4 T",
-    "nino34"              = "NINO3.4 T",
-    "l(nino34, 1)"        = "NINO3.4 T-1",
-    "l(nino34, 2)"        = "NINO3.4 T-2",
-    "l(nino34, 3)"        = "NINO3.4 T-3",
-    "ongoing_wars"        = "Ongoing Wars",
-    "log(1+Deaths)"       = "Log(1+Deaths)",
-    "PDSI"                = "PDSI",
-    "temp_summer"         = "Summer Temp",
-    "temp_winter"         = "Winter Temp",
-    "precip_summer"       = "Summer Precip",
-    "precip_winter"       = "Winter Precip",
-    "logyield"            = "Log Grain Harvest"
+  save_cum_dl_table(
+    list(est1, est2, est3, est4),
+    output_path = file.path(OUT_TAB, "FE_ENSO_yieldPDSI.tex"),
+    title       = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Wheat and Rye Grain Harvests --- Cumulative $\\Delta$ Log Response.",
+    label       = "tab:FE_ENSO_yieldPDSI",
+    dep_label   = "$\\Delta$ Log Grain Harvest",
+    fe_rows = list(
+      "Decade FE"                = rep("Yes", 4),
+      "Record-Location-Grain FE" = rep("Yes", 4),
+      "Controls"                 = c("None", "Climate", "Conflict", "Climate + Conflict")
+    )
   )
-
-  etable(
-    est1, est2, est3, est4,
-    keep         = "%nino34",
-    vcov         = DK ~ Year,
-    dict         = dict_yield,
-    label        = "tab:FE_ENSO_yieldPDSI",
-    title        = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Wheat and Rye Grain Harvests.",
-    drop.section = "fixef",
-    fitstat      = c("n", "r2"),
-    extralines   = list(
-      "Decade FE"               = c("Yes", "Yes", "Yes", "Yes"),
-      "Record-Location-Grain FE" = c("Yes", "Yes", "Yes", "Yes"),
-      "Controls"                = c("None", "Climate", "Conflict", "Climate + Conflict")
-    ),
-    file    = file.path(OUT_TAB, "FE_ENSO_yieldPDSI.tex"),
-    replace = TRUE
-  )
-  cat("Saved FE_ENSO_yieldPDSI.tex\n")
 }
 
 
@@ -266,59 +336,40 @@ save_fishprice_tables <- function() {
     )
   cat("Saved summary_fishprice.tex\n")
 
-  ## 3b. FE-DL regressions
-  est1 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) | Location,
+  ## 3b. FE-DL on Δ log price (cumulative sums recover level β_h).
+  ## Location[Year] adds a Location-specific linear trend on the differenced
+  ## series (= Location-specific parabolic trend on level logprice).
+  est1 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) | Location[Year],
                 data = fishprice, panel.id = c("LocationSpecies", "Year"),
                 vcov = DK ~ Year)
-  est2 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
+  est2 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
                   PDSI + temp_summer + temp_winter + precip_summer + precip_winter |
-                  Location,
+                  Location[Year],
                 data = fishprice, panel.id = c("LocationSpecies", "Year"),
                 vcov = DK ~ Year)
-  est3 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
-                  ongoing_wars + log(1 + Deaths) | Location,
+  est3 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
+                  ongoing_wars + log(1 + Deaths) | Location[Year],
                 data = fishprice, panel.id = c("LocationSpecies", "Year"),
                 vcov = DK ~ Year)
-  est4 <- feols(logprice ~ Year:Location + l(nino34, 0:3) + i(Decade) +
+  est4 <- feols(d(logprice) ~ l(nino34, 0:3) + i(Decade) +
                   PDSI + temp_summer + temp_winter + precip_summer + precip_winter +
-                  ongoing_wars + log(1 + Deaths) | Location,
+                  ongoing_wars + log(1 + Deaths) | Location[Year],
                 data = fishprice, panel.id = c("LocationSpecies", "Year"),
                 vcov = DK ~ Year)
 
-  dict_fish <- c(
-    "l(nino34, 0)"  = "NINO3.4 T",
-    "nino34"        = "NINO3.4 T",
-    "l(nino34, 1)"  = "NINO3.4 T-1",
-    "l(nino34, 2)"  = "NINO3.4 T-2",
-    "l(nino34, 3)"  = "NINO3.4 T-3",
-    "ongoing_wars"  = "Ongoing Wars",
-    "log(1+Deaths)" = "Log(1+Deaths)",
-    "PDSI"          = "PDSI",
-    "temp_summer"   = "Summer Temp",
-    "temp_winter"   = "Winter Temp",
-    "precip_summer" = "Summer Precip",
-    "precip_winter" = "Winter Precip",
-    "logprice"      = "Log Fish Price"
+  save_cum_dl_table(
+    list(est1, est2, est3, est4),
+    output_path = file.path(OUT_TAB, "ENSO_fishprice_main.tex"),
+    title       = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Fish Prices --- Cumulative $\\Delta$ Log Response.",
+    label       = "tab:fishprice_FE",
+    dep_label   = "$\\Delta$ Log Fish Price",
+    fe_rows = list(
+      "Decade FE"                = rep("Yes", 4),
+      "Location-Species FE"      = rep("Yes", 4),
+      "Location-specific trend"  = rep("Yes", 4),
+      "Controls"                 = c("None", "Climate", "Conflict", "Climate + Conflict")
+    )
   )
-
-  etable(
-    est1, est2, est3, est4,
-    vcov         = DK ~ Year,
-    keep         = "%nino34",
-    dict         = dict_fish,
-    label        = "tab:fishprice_FE",
-    title        = "Effect of a 1\\textdegree C Anomaly in the Nino 3.4 Index on Fish Prices",
-    drop.section = "fixef",
-    fitstat      = c("n", "r2"),
-    extralines   = list(
-      "Decade FE"              = c("Yes", "Yes", "Yes", "Yes"),
-      "Location-Species FE"    = c("Yes", "Yes", "Yes", "Yes"),
-      "Controls"               = c("None", "Climate", "Conflict", "Climate + Conflict")
-    ),
-    file    = file.path(OUT_TAB, "ENSO_fishprice_main.tex"),
-    replace = TRUE
-  )
-  cat("Saved ENSO_fishprice_main.tex\n")
 }
 
 

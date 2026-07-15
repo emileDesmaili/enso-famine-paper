@@ -72,7 +72,7 @@ run_lp_price <- function(df, endog, shock = "nino34",
     main_var     = shock,
     controls     = ctrl_str,
     horizon      = hor,
-    fe           = entity,
+    fe           = paste0(entity, "[Year]"),   # entity FE + entity-specific linear trend
     panel_id     = c(entity, "Year"),
     vcov_formula = DK ~ Year
   )
@@ -128,7 +128,7 @@ export_fig5A <- function(data) {
     interact_var = "teleco_PDSI_10",
     controls     = "i(Decade) + l(nino34, 1:3)",
     horizon      = hor,
-    fe           = "Location",
+    fe           = "Location[Year]",
     panel_id     = c("Location", "Year"),
     vcov_formula = DK ~ Year
   ) |>
@@ -181,7 +181,7 @@ run_lp_fish_devcoded <- function(fishprice, shock = "nino34", hor = 10,
     fml <- as.formula(paste0(
       "f(logprice,", h, ") - l(logprice,1) ~ ",
       shock, " + ", shock, ":cod_dev + ", ctrl_str,
-      " | LocationSpecies"))
+      " | LocationSpecies[Year]"))
     m  <- tryCatch(
       feols(fml, data = d,
             panel.id = c("LocationSpecies", "Year"),
@@ -217,7 +217,7 @@ export_fig5B <- function(fishprice) {
     interact_var = "Species",
     controls     = "i(Decade) + l(nino34, 1:3)",
     horizon      = 10,
-    fe           = "LocationSpecies",
+    fe           = "LocationSpecies[Year]",
     panel_id     = c("LocationSpecies", "Year"),
     vcov_formula = DK ~ Year
   ) |>
@@ -244,7 +244,7 @@ run_lp_se_robust_price <- function(df, endog, entity,
   bind_rows(lapply(0:hor, function(h) {
     fml <- as.formula(paste0(
       "f(", endog, ",", h, ") - l(", endog, ",1) ~ nino34 + l(nino34, 1:3) ",
-      "+ i(Decade) | ", entity
+      "+ i(Decade) | ", entity, "[Year]"
     ))
     mod <- feols(fml, data = df, panel.id = pid, vcov = DK ~ Year)
 
@@ -298,7 +298,7 @@ run_lp_se_robust_fish_devcoded <- function(fishprice,
   bind_rows(lapply(0:hor, function(h) {
     fml <- as.formula(paste0(
       "f(logprice,", h, ") - l(logprice,1) ~ ",
-      "nino34 + nino34:cod_dev + l(nino34, 1:3) + i(Decade) | LocationSpecies"))
+      "nino34 + nino34:cod_dev + l(nino34, 1:3) + i(Decade) | LocationSpecies[Year]"))
     mod <- feols(fml, data = d, panel.id = pid, vcov = DK ~ Year)
 
     v_conley <- tryCatch(
@@ -415,35 +415,7 @@ export_allen_irf <- function() {
 plot_allen_irf <- function() {
   path <- file.path(out_data, "figA_irf_allen.csv")
   if (!file.exists(path)) { message("figA_irf_allen.csv not found"); return() }
-  df <- read.csv(path)
-
-  p <- ggplot(df, aes(x = horizon, y = irf_mean,
-                      color = controls, fill = controls, linetype = controls)) +
-    geom_ribbon(
-      data = dplyr::filter(df, controls == "Base"),
-      aes(ymin = irf_down, ymax = irf_up),
-      alpha = 0.15, color = NA
-    ) +
-    geom_line(linewidth = 1.2) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    scale_x_continuous(breaks = 0:10) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-    scale_color_manual(values = .CTRL_COLORS) +
-    scale_fill_manual(values = .CTRL_COLORS) +
-    scale_linetype_manual(values = .CTRL_LTY) +
-    labs(x = "Horizon (years)",
-         y = "Price variation",
-         color = "Controls", fill = "Controls", linetype = "Controls") +
-    theme_classic(base_size = 18) +
-    theme(legend.position = "bottom",
-          panel.grid = element_blank()) +
-    guides(color    = guide_legend(nrow = 2, byrow = TRUE),
-           fill     = guide_legend(nrow = 2, byrow = TRUE),
-           linetype = guide_legend(nrow = 2, byrow = TRUE))
-
-  ggsave(file.path(fig_out, "figA_irf_allen.pdf"), p,
-         width = 6, height = 5, device = cairo_pdf)
-  message("Saved figA_irf_allen.pdf")
+  .plot_ctrl_irf(read.csv(path), "Price variation", "figA_irf_allen.pdf")
 }
 
 
@@ -663,19 +635,58 @@ export_bootstrap <- function(data, fishprice, n_iter = 500) {
 fig_out <- file.path(SCRIPT_DIR, "output", "figures", "appendix")
 dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
 
-# Shared palette for 4-control IRF plots (Allen & FSV)
+# Shared palette for 4-control IRF plots (Allen & FSV).
+# Main "Base" spec in black with cornflowerblue ribbon (matches Fig 5 style);
+# alternates overlaid as coloured dashed lines without ribbons.
 .CTRL_COLORS <- c(
   "Base"               = "black",
-  "Climate"            = "firebrick",
-  "Conflict"           = "steelblue",
-  "Climate + Conflict" = "orange"
+  "Climate"            = "#D55E00",   # vermillion
+  "Conflict"           = "#0072B2",   # blue
+  "Climate + Conflict" = "#009E73"    # bluish green
 )
 .CTRL_LTY <- c(
   "Base"               = "solid",
-  "Climate"            = "solid",
-  "Conflict"           = "dashed",
-  "Climate + Conflict" = "dashed"
+  "Climate"            = "dashed",
+  "Conflict"           = "dotdash",
+  "Climate + Conflict" = "longdash"
 )
+.CTRL_RIBBON_COL <- "cornflowerblue"
+
+.plot_ctrl_irf <- function(df, y_label, out_file) {
+  df <- df |>
+    dplyr::mutate(controls = factor(controls,
+                                    levels = names(.CTRL_COLORS)))
+  base_df <- dplyr::filter(df, controls == "Base")
+
+  p <- ggplot(df, aes(x = horizon, y = irf_mean,
+                      colour = controls, linetype = controls)) +
+    geom_hline(yintercept = 0, linetype = "dashed",
+               colour = "gray40", linewidth = 0.6) +
+    geom_ribbon(data = base_df,
+                aes(x = horizon, ymin = irf_down, ymax = irf_up),
+                fill = .CTRL_RIBBON_COL, colour = NA, alpha = 0.20,
+                inherit.aes = FALSE, show.legend = FALSE) +
+    geom_line(data = dplyr::filter(df, controls != "Base"), linewidth = 1.0) +
+    geom_line(data = base_df, linewidth = 1.4) +
+    scale_x_continuous(breaks = 0:10) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    scale_colour_manual(values = .CTRL_COLORS) +
+    scale_linetype_manual(values = .CTRL_LTY) +
+    labs(x = "Horizon (years)", y = y_label,
+         colour = "Controls", linetype = "Controls") +
+    theme_classic(base_size = 16) +
+    theme(legend.position  = "bottom",
+          legend.text      = element_text(size = 11),
+          legend.title     = element_text(size = 11),
+          panel.grid       = element_blank()) +
+    guides(colour   = guide_legend(nrow = 1, byrow = TRUE,
+                                   override.aes = list(linewidth = 1.2)),
+           linetype = guide_legend(nrow = 1, byrow = TRUE))
+
+  ggsave(file.path(fig_out, out_file), p,
+         width = 7, height = 5, device = cairo_pdf)
+  message("Saved ", out_file)
+}
 
 .loo_overlay_plot <- function(base_df, loo_df, group_col, y_label) {
   ggplot() +
@@ -727,33 +738,7 @@ dir.create(fig_out, recursive = TRUE, showWarnings = FALSE)
 plot_FSV_irf <- function() {
   path <- file.path(out_data, "figA_irf_FSV.csv")
   if (!file.exists(path)) { message("figA_irf_FSV.csv not found"); return() }
-  df <- read.csv(path)
-  p <- ggplot(df, aes(x = horizon, y = irf_mean,
-                      color = controls, fill = controls, linetype = controls)) +
-    geom_ribbon(
-      data = dplyr::filter(df, controls == "Base"),
-      aes(ymin = irf_down, ymax = irf_up),
-      alpha = 0.15, color = NA
-    ) +
-    geom_line(linewidth = 1.2) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.8) +
-    scale_x_continuous(breaks = 0:10) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-    scale_color_manual(values = .CTRL_COLORS) +
-    scale_fill_manual(values = .CTRL_COLORS) +
-    scale_linetype_manual(values = .CTRL_LTY) +
-    labs(x = "Horizon (years)",
-         y = "Price variation",
-         color = "Controls", fill = "Controls", linetype = "Controls") +
-    theme_classic(base_size = 18) +
-    theme(legend.position = "bottom",
-          panel.grid = element_blank()) +
-    guides(color    = guide_legend(nrow = 2, byrow = TRUE),
-           fill     = guide_legend(nrow = 2, byrow = TRUE),
-           linetype = guide_legend(nrow = 2, byrow = TRUE))
-  ggsave(file.path(fig_out, "figA_irf_FSV.pdf"), p,
-         width = 6, height = 5, device = cairo_pdf)
-  message("Saved figA_irf_FSV.pdf")
+  .plot_ctrl_irf(read.csv(path), "Price variation", "figA_irf_FSV.pdf")
 }
 
 plot_bootstrap_price <- function() {
