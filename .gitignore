@@ -12,3 +12,4 @@ paper
 *.tar
 *.tar.gz
 *.log
+.claude/
