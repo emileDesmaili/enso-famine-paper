@@ -236,6 +236,18 @@ export_fig5B <- function(fishprice) {
 #   DK          – Driscoll-Kraay (baseline)
 #   2-way       – two-way cluster (entity × Year)
 #   Conley      – spatial HAC via vcov_conley
+# Combined Spatial HAC = Conley + NW − Hetero is not guaranteed to be PSD;
+# when a diagonal entry goes non-positive, fall back to the larger of the
+# Conley and NW variances for that entry (still honest, avoids sqrt(NaN)).
+.clip_spatial_hac <- function(v_spat, v_conley, v_nw) {
+  d       <- diag(v_spat)
+  bad     <- which(!is.finite(d) | d <= 0)
+  if (length(bad) > 0) {
+    d[bad] <- pmax(diag(v_conley)[bad], diag(v_nw)[bad])
+    diag(v_spat) <- d
+  }
+  v_spat
+}
 #   Spatial HAC – Conley + NW - Hetero (combined spatial+serial+correct)
 run_lp_se_robust_price <- function(df, endog, entity,
                                     lat_col = "Latitude", lon_col = "Longitude",
@@ -255,7 +267,9 @@ run_lp_se_robust_price <- function(df, endog, entity,
     )
     v_nw   <- vcov(mod, vcov = NW ~ Year)
     v_het  <- vcov(mod, vcov = "hetero")
-    v_spat <- if (!is.null(v_conley)) v_conley + v_nw - v_het else NULL
+    v_spat <- if (!is.null(v_conley))
+                .clip_spatial_hac(v_conley + v_nw - v_het, v_conley, v_nw)
+              else NULL
 
     se_list <- list(
       "DK"          = vcov(mod, vcov = DK ~ Year),
@@ -308,7 +322,9 @@ run_lp_se_robust_fish_devcoded <- function(fishprice,
     )
     v_nw   <- vcov(mod, vcov = NW ~ Year)
     v_het  <- vcov(mod, vcov = "hetero")
-    v_spat <- if (!is.null(v_conley)) v_conley + v_nw - v_het else NULL
+    v_spat <- if (!is.null(v_conley))
+                .clip_spatial_hac(v_conley + v_nw - v_het, v_conley, v_nw)
+              else NULL
 
     se_list <- list(
       "DK"          = vcov(mod, vcov = DK ~ Year),

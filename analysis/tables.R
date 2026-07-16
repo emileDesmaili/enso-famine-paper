@@ -6,7 +6,6 @@
 #   Ljungqvist_ENSO_price_main.tex – grain price FE-DL regression
 #   FE_ENSO_yieldPDSI.tex          – grain harvest FE-DL regression (PDSI teleconnection)
 #   ENSO_fishprice_main.tex        – fish price FE-DL regression
-#   granger_enso.tex               – Granger causality checks
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -374,81 +373,6 @@ save_fishprice_tables <- function() {
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. GRANGER CAUSALITY CHECKS
-# ══════════════════════════════════════════════════════════════════════════════
-save_granger_table <- function() {
-  data      <- read.csv(file.path(DATA_PROC, "price_2023_enso.csv")) %>%
-    mutate(Decade = floor(Year / 10) * 10) %>% drop_na() %>% distinct()
-  fishprice <- read.csv(file.path(DATA_PROC, "fishprice_enso.csv")) %>% drop_na()
-  yield_2023 <- read.csv(file.path(DATA_PROC, "yield_ljungqvist_v2.csv")) %>%
-    filter(Grain %in% c("Wheat", "Rye"))
-
-  # Annual averages for panel Granger tests
-  ljunqgvist_avg <- data %>%
-    group_by(Year) %>%
-    summarise(avg_price  = mean(logprice, na.rm = TRUE),
-              avg_nino34 = mean(nino34,   na.rm = TRUE),
-              .groups = "drop")
-
-  ljunqgvist_avg_yield <- yield_2023 %>%
-    filter(teleco_PDSI_10 == 1) %>%
-    group_by(Year) %>%
-    summarise(avg_yield  = mean(logyield, na.rm = TRUE),
-              avg_nino34 = mean(nino34,   na.rm = TRUE),
-              .groups = "drop")
-
-  avg_fishprice <- fishprice %>%
-    group_by(Location, Year) %>%
-    summarise(avg_price  = mean(logprice, na.rm = TRUE),
-              avg_nino34 = mean(nino34,   na.rm = TRUE),
-              .groups = "drop")
-
-  # Helper: safe p-value extraction
-  granger_p <- function(formula, data, order) {
-    tryCatch(
-      grangertest(formula, data = data, order = order)$`Pr(>F)`[2],
-      error = function(e) NA_real_
-    )
-  }
-
-  results <- tibble::tibble(
-    Variable  = c(
-      "Grain Price (all cities)", "Grain Price (all cities)",
-      "Harvests (Teleconnected)", "Harvests (Teleconnected)",
-      "Fish Price (all cities)",  "Fish Price (all cities)"
-    ),
-    Direction = c(
-      "Grain Price $\\to$ NINO3.4",  "NINO3.4 $\\to$ Grain Price",
-      "Harvest $\\to$ NINO3.4",      "NINO3.4 $\\to$ Harvest",
-      "Fish Price $\\to$ NINO3.4",   "NINO3.4 $\\to$ Fish Price"
-    ),
-    p_value = c(
-      granger_p(avg_nino34 ~ avg_price, ljunqgvist_avg,       order = 10),
-      granger_p(avg_price  ~ avg_nino34, ljunqgvist_avg,      order = 1),
-      granger_p(avg_nino34 ~ avg_yield, ljunqgvist_avg_yield, order = 10),
-      granger_p(avg_yield  ~ avg_nino34, ljunqgvist_avg_yield, order = 1),
-      granger_p(avg_nino34 ~ avg_price, avg_fishprice,        order = 10),
-      granger_p(avg_price  ~ avg_nino34, avg_fishprice,       order = 1)
-    )
-  ) %>%
-    mutate(p_value = round(p_value, 3))
-
-  latex_table <- knitr::kable(
-    results,
-    format    = "latex",
-    booktabs  = TRUE,
-    escape    = FALSE,
-    col.names = c("Variable", "Direction", "\\textit{p}-value"),
-    caption   = "Granger causality tests for the relationship between ENSO (NINO3.4), prices, and yields.",
-    label     = "granger_enso"
-  )
-
-  writeLines(latex_table, file.path(OUT_TAB, "granger_enso.tex"))
-  cat("Saved granger_enso.tex\n")
-}
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
 if (!interactive()) {
@@ -460,9 +384,6 @@ if (!interactive()) {
 
   cat("\n=== Fish Price Tables ===\n")
   save_fishprice_tables()
-
-  cat("\n=== Granger Causality Table ===\n")
-  save_granger_table()
 
   cat("\nAll tables saved to", OUT_TAB, "\n")
 }

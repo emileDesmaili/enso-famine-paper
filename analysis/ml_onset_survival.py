@@ -213,11 +213,12 @@ def run_onset_classifier():
         print(f"[{suffix}] OOS F1: {oos_f1:.3f}")
         all_models.append((suffix, best, best_thr, X, y, oos_f1))
 
-        # Skip the four per-suffix PDFs for the "All_features" variant —
-        # they are not used in the paper (only the confusion/ROC PDF is).
+        # Per-suffix PDFs used in the paper: importances (except NINO34),
+        # skill, and counts. Chronology PDFs are not referenced anywhere in
+        # the manuscript so we skip them entirely.
         if suffix != "All_features":
-            _save_chronology_pdf(df_chron, onset, suffix)
-            _save_importances_pdf(df_imp, suffix)
+            if suffix != "NINO34":
+                _save_importances_pdf(df_imp, suffix)
             _save_skill_pdf(in_sample_acc, cv_scores, suffix)
             _save_counts_pdf(df_chron, suffix)
 
@@ -232,81 +233,7 @@ def run_onset_classifier():
                 cv_scores=cv_scores,
             )
 
-    # Save confusion/metrics + reliability figures for model with highest OOS F1
-    best_entry  = max(all_models, key=lambda t: t[5])
-    best_suffix, best_best, best_thr, best_X, best_y, best_f1 = best_entry
-    print(f"Best OOS F1 model: {best_suffix} (F1={best_f1:.3f})")
-    if best_suffix != "All_features":
-        _save_confusion_roc_pdf(best_best, best_X, best_y, threshold=best_thr,
-                                cv=10, suffix=best_suffix)
-
     return main_result
-
-
-def _save_chronology_pdf(df_chron, onset_df, suffix):
-    years      = sorted(df_chron["Year"].unique())
-    year_min, year_max = min(years), max(years)
-    colors     = {"Observed": "firebrick", "Predicted": "darksalmon",
-                  "Counterfactual": "cornflowerblue"}
-
-    # Use actual famine duration for bar widths (matches assemble_figures logic)
-    dur_lookup = (onset_df[onset_df["Famine_start"] == 1]
-                  .set_index("Year")["Famine_dur"].to_dict()
-                  if "Famine_dur" in onset_df.columns else {})
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
-                                   height_ratios=[1, 1], sharex=False)
-    y_positions = {}
-    for i, region in enumerate(sorted(df_chron["Region"].unique())):
-        base_y = i * 6
-        y_positions[region] = {"Observed": base_y + 3,
-                                "Predicted": base_y + 1.5,
-                                "Counterfactual": base_y}
-        rd = df_chron[df_chron["Region"] == region].sort_values("Year")
-        for scenario in ["Observed", "Predicted", "Counterfactual"]:
-            for yr in rd.loc[rd[scenario] == 1, "Year"].values:
-                dur = dur_lookup.get(yr, 1)
-                ax1.barh(y=y_positions[region][scenario], width=dur, left=yr,
-                         height=1.2, color=colors[scenario],
-                         edgecolor="black", linewidth=1.2, alpha=0.7)
-
-    y_ticks, y_labels = [], []
-    for region in sorted(df_chron["Region"].unique()):
-        for scenario in ["Counterfactual", "Predicted", "Observed"]:
-            cnt = df_chron[df_chron["Region"] == region][scenario].sum()
-            y_ticks.append(y_positions[region][scenario])
-            y_labels.append(f"{scenario} ({cnt})")
-    ax1.set_yticks(y_ticks)
-    ax1.set_yticklabels(y_labels)
-    ax1.set_xlim(year_min - 1, year_max + 1)
-    ax1.set_xlabel("Year")
-    _polish(ax1)
-
-    nino_actual = (df_chron.groupby("Year")["NINO34_actual"]
-                   .first().reindex(years, fill_value=0).values)
-    nino_cf     = (df_chron.groupby("Year")["NINO34_counterfactual"]
-                   .first().reindex(years, fill_value=0).values)
-    ax2.plot(years, nino_actual, color="crimson",    linewidth=1.4,
-             label="Observed", alpha=0.8)
-    ax2.plot(years, nino_cf,     color="dodgerblue", linewidth=1.4,
-             label="Counterfactual", alpha=0.9)
-    diff_mask = (np.array(nino_actual) != np.array(nino_cf)) & \
-                (np.array(nino_actual) >= 0.5)
-    ax2.scatter(np.array(years)[diff_mask], np.array(nino_actual)[diff_mask],
-                color="red", s=30, zorder=5, label="> 0.5°C")
-    ax2.axhline(0,   color="black", linestyle="-",  alpha=0.3, linewidth=0.8)
-    ax2.axhline(0.5, color="black", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax2.set_xlim(year_min - 1, year_max + 1)
-    ax2.set_xlabel("Year")
-    ax2.set_ylabel("NINO3.4 (°C)")
-    ax2.legend(loc="lower left", frameon=False)
-    _polish(ax2)
-
-    fig.tight_layout()
-    fig.savefig(OUT_APP / f"MLOnset_{suffix}_chronology.pdf",
-                dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  saved chronology for {suffix}")
 
 
 def _save_importances_pdf(df_imp, suffix):
@@ -485,172 +412,6 @@ def _save_confusion_roc_pdf(best, X, y, threshold=0.5, cv=10, suffix="All_featur
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved {out_path.name}")
-
-
-# ── Draw individual subpanels into an Axes (for combined figure) ───────────────
-
-def _draw_C_chronology(ax_chron, ax_nino, df_chron):
-    years      = sorted(df_chron["Year"].unique())
-    year_min, year_max = min(years), max(years)
-    colors     = {"Observed": "firebrick", "Predicted": "darksalmon",
-                  "Counterfactual": "cornflowerblue"}
-    dur_lookup = (df_chron[df_chron["Observed"] == 1]
-                  .set_index("Year")["Famine_dur"].to_dict()
-                  if "Famine_dur" in df_chron.columns else {})
-
-    y_positions = {}
-    for i, region in enumerate(sorted(df_chron["Region"].unique())):
-        base_y = i * 6
-        y_positions[region] = {"Observed": base_y + 3,
-                                "Predicted": base_y + 1.5,
-                                "Counterfactual": base_y}
-        rd = df_chron[df_chron["Region"] == region].sort_values("Year")
-        for scenario in ["Observed", "Predicted", "Counterfactual"]:
-            for yr in rd.loc[rd[scenario] == 1, "Year"].values:
-                dur = dur_lookup.get(yr, 1)
-                ax_chron.barh(y=y_positions[region][scenario], width=dur, left=yr,
-                              height=1.2, color=colors[scenario],
-                              edgecolor="black", linewidth=1.0, alpha=0.75)
-
-    y_ticks, y_labels = [], []
-    for region in sorted(df_chron["Region"].unique()):
-        for scenario in ["Counterfactual", "Predicted", "Observed"]:
-            cnt = df_chron[df_chron["Region"] == region][scenario].sum()
-            y_ticks.append(y_positions[region][scenario])
-            y_labels.append(f"{scenario} ({cnt})")
-    ax_chron.set_yticks(y_ticks)
-    ax_chron.set_yticklabels(y_labels, fontsize=FONT_SIZE - 1)
-    ax_chron.set_xlim(year_min - 1, year_max + 1)
-    ax_chron.tick_params(labelbottom=False)
-    _polish(ax_chron)
-
-    nino_actual = (df_chron.groupby("Year")["NINO34_actual"]
-                   .first().reindex(years, fill_value=0).values)
-    nino_cf     = (df_chron.groupby("Year")["NINO34_counterfactual"]
-                   .first().reindex(years, fill_value=0).values)
-    ax_nino.plot(years, nino_actual, color="crimson",    linewidth=1.4,
-                 label="Observed", alpha=0.85)
-    ax_nino.plot(years, nino_cf,     color="dodgerblue", linewidth=1.4,
-                 label="Counterfactual", alpha=0.9)
-    diff_mask = (np.array(nino_actual) != np.array(nino_cf)) & \
-                (np.array(nino_actual) >= 0.5)
-    ax_nino.scatter(np.array(years)[diff_mask], np.array(nino_actual)[diff_mask],
-                    color="red", s=25, zorder=5, label="> 0.5°C")
-    ax_nino.axhline(0,   color="black", linestyle="-",  alpha=0.3, linewidth=0.8)
-    ax_nino.axhline(0.5, color="black", linestyle="--", alpha=0.5, linewidth=0.8)
-    ax_nino.set_xlim(year_min - 1, year_max + 1)
-    ax_nino.set_xlabel("Year")
-    ax_nino.set_ylabel("NINO3.4 (°C)")
-    ax_nino.legend(loc="lower left", frameon=False, fontsize=FONT_SIZE - 2)
-    _polish(ax_nino)
-
-
-def _draw_D_importances(ax, df_imp):
-    medians   = df_imp.groupby("Feature")["Importance"].median().sort_values(ascending=False)
-    med_order = medians.index
-    norm      = plt.Normalize(medians.min(), medians.max())
-    palette   = {f: plt.cm.Reds(norm(v)) for f, v in medians.items()}
-    sns.boxplot(x="Importance", y="Feature", hue="Feature", data=df_imp,
-                order=med_order, palette=palette, legend=False, ax=ax)
-    ax.set_xlabel("Permutation Importance")
-    ax.set_ylabel("")
-    _polish(ax)
-
-
-def _draw_E_skill(ax, in_sample_acc, cv_scores):
-    skill_df = pd.DataFrame({
-        "Skill":    ["In-sample", "Cross-Validation"],
-        "Accuracy": [in_sample_acc, cv_scores.mean()],
-    })
-    sns.barplot(data=skill_df, y="Skill", x="Accuracy", hue="Skill",
-                palette={"In-sample": "firebrick", "Cross-Validation": "darksalmon"},
-                legend=False, ax=ax)
-    ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
-                color="black", fmt="none", capsize=4, elinewidth=1.5)
-    ax.set_xlim(0, 1)
-    ax.set_xlabel("Accuracy")
-    _polish(ax)
-
-
-# ── Assemble Figure 2  (A+B from R PNGs, C+D+E from Python) ──────────────────
-
-def assemble_fig2(main_result):
-    png_a = OUT_APP / "_fig2A_panel.png"
-    png_b = OUT_APP / "_fig2B_panel.png"
-    have_r_panels = png_a.exists() and png_b.exists()
-
-    df_chron      = main_result["df_chron"]
-    df_imp        = main_result["df_imp"]
-    in_sample_acc = main_result["in_sample_acc"]
-    cv_scores     = main_result["cv_scores"]
-
-    if have_r_panels:
-        # 5-panel layout: top row (A, B), bottom 3 rows (C, D, E)
-        fig = plt.figure(figsize=(18, 22))
-        gs  = gridspec.GridSpec(
-            3, 2,
-            figure=fig,
-            height_ratios=[1.0, 1.4, 0.5],
-            hspace=0.55,
-            wspace=0.38,
-        )
-
-        # A  (image from R)
-        ax_a = fig.add_subplot(gs[0, 0])
-        ax_a.imshow(mpimg.imread(str(png_a)))
-        ax_a.axis("off")
-        ax_a.text(-0.05, 1.04, "A", transform=ax_a.transAxes,
-                  fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-        # B  (image from R)
-        ax_b = fig.add_subplot(gs[0, 1])
-        ax_b.imshow(mpimg.imread(str(png_b)))
-        ax_b.axis("off")
-        ax_b.text(-0.05, 1.04, "B", transform=ax_b.transAxes,
-                  fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-    else:
-        print("  Note: R panel PNGs not found; building Fig2 with C/D/E only.")
-        fig = plt.figure(figsize=(18, 14))
-        gs  = gridspec.GridSpec(
-            2, 2,
-            figure=fig,
-            height_ratios=[1.4, 0.5],
-            hspace=0.55, wspace=0.38,
-        )
-
-    # C  (chronology spans full width, two internal rows)
-    if have_r_panels:
-        gs_c = gridspec.GridSpecFromSubplotSpec(
-            2, 1, subplot_spec=gs[1, :],
-            height_ratios=[2, 1], hspace=0.08,
-        )
-    else:
-        gs_c = gridspec.GridSpecFromSubplotSpec(
-            2, 1, subplot_spec=gs[0, :],
-            height_ratios=[2, 1], hspace=0.08,
-        )
-    ax_c1 = fig.add_subplot(gs_c[0])
-    ax_c2 = fig.add_subplot(gs_c[1])
-    _draw_C_chronology(ax_c1, ax_c2, df_chron)
-    ax_c1.text(-0.05, 1.05, "C", transform=ax_c1.transAxes,
-               fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-    # D  (importances)
-    row_de = 2 if have_r_panels else 1
-    ax_d = fig.add_subplot(gs[row_de, 0])
-    _draw_D_importances(ax_d, df_imp)
-    ax_d.text(-0.12, 1.05, "D", transform=ax_d.transAxes,
-              fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-    # E  (skill)
-    ax_e = fig.add_subplot(gs[row_de, 1])
-    _draw_E_skill(ax_e, in_sample_acc, cv_scores)
-    ax_e.text(-0.12, 1.05, "E", transform=ax_e.transAxes,
-              fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-    fig.savefig(OUT_APP / "MLOnset_combined.pdf", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print("Saved fig2_combined.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -845,10 +606,13 @@ def run_survival_ml():
         if i == 0:
             _panel_label(ax_sub, "d", x=-0.20)
 
-    out_name = "fig4_combined.pdf" if have_r4 else "MLSurvival_concordance_importances.pdf"
-    fig4.savefig(OUT_APP / out_name, dpi=300, bbox_inches="tight")
+    # Only save the combined Fig 4 when the R-produced panels A + B are on
+    # disk; the C+D-only fallback (MLSurvival_concordance_importances.pdf)
+    # is not referenced anywhere in the paper.
+    if have_r4:
+        fig4.savefig(OUT_APP / "fig4_combined.pdf", dpi=300, bbox_inches="tight")
+        print("Saved fig4_combined.pdf")
     plt.close(fig4)
-    print(f"Saved {out_name}")
 
     # ── Appendix: full-sample concordance ────────────────────────────────────
     rsf_fs = RandomSurvivalForest(random_state=42, n_jobs=-1,
@@ -880,9 +644,12 @@ def run_survival_ml():
                   f"{m:.3f}", ha="center", va="bottom", fontsize=FONT_SIZE)
     ax_a.set_ylabel("Concordance Index")
     ax_a.set_ylim(0, 1.0)
-    ax_a.axhline(0.5, color="black", linestyle="--", linewidth=1,
-                 label="Random Guessing")
-    ax_a.legend(frameon=False)
+    ax_a.axhline(0.5, color="black", linestyle="--", linewidth=1)
+    # Inline label on the reference line — avoids a legend that would sit
+    # on top of the bars.
+    ax_a.text(len(methods) - 0.5, 0.51, "Random guessing",
+              ha="right", va="bottom",
+              fontsize=FONT_SIZE - 1, style="italic", color="black")
     _polish(ax_a)
     fig_a.tight_layout()
     fig_a.savefig(OUT_APP / "MLSurvival_CI_fullsample.pdf", dpi=300)
@@ -919,10 +686,7 @@ def run_survival_ml():
 
 if __name__ == "__main__":
     print("=== ML Onset Classifier (Fig 2 C–E) ===")
-    main_result = run_onset_classifier()
-
-    print("\nAssembling Figure 2 …")
-    assemble_fig2(main_result)
+    run_onset_classifier()
 
     print("\n=== ML Survival Analysis (Fig 4 C–D) ===")
     run_survival_ml()
