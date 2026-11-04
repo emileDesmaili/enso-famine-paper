@@ -52,26 +52,13 @@ prices.plot(figsize=(12, 8), title=f'Allen-FSV {start}-{end}',subplots=True, lay
 # In[4]:
 
 
-from geopy.geocoders import Nominatim
-import time
-
+# City coordinates (geocoded once with Nominatim; stored in data/ so the
+# pipeline does not depend on a network service)
 cities = prices.columns.tolist()
 
-geolocator = Nominatim(user_agent="city_geocoder")
-
-city_to_coords = {}
-
-for city in cities:
-    try:
-        location = geolocator.geocode(city)
-        if location:
-            city_to_coords[city] = (location.latitude, location.longitude)
-            print(f"{city}: ({location.latitude}, {location.longitude})")
-        else:
-            print(f"{city}: Not found")
-    except Exception as e:
-        print(f"Error with {city}: {e}")
-    time.sleep(1)  # To avoid getting blocked by the server
+coords = pd.read_csv('../data/coordinates_federico_cities.csv').set_index('Location')
+city_to_coords = {city: (coords.at[city, 'Latitude'], coords.at[city, 'Longitude'])
+                  for city in cities if city in coords.index}
 
 
 

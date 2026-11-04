@@ -1,10 +1,10 @@
 """
-process_ljungqvist_yields_v2.py
-================================
+process_ljungqvist_yields.py
+============================
 
-Rebuild the Ljungqvist yield panel ("yield_ljungqvist_2025.csv") with
-tighter and clearer choices. The original notebook is left untouched;
-this script writes a NEW file:
+Build the grain-harvest panel used in the paper from the raw harvest
+series in data/ (data/fcl_yields_new/ and Data_Ljungqvist_et_al_2023.csv).
+Writes:
 
     processed data/yield_ljungqvist_v2.csv
 
@@ -35,11 +35,11 @@ What I do differently (and why)
     coordinates (a single grid cell when no data are within the box).
     v1 mixes nearest-cell for T/P with 1°-radius for PDSI.
 
-5.  **Geocoding is reused from v1's CSV, not re-queried over the
-    network.** Nominatim look-ups are slow, fragile, and depend on a
-    cache that's empty each run. Coordinates and Country labels are
-    taken directly from `yield_ljungqvist_2025.csv` to keep the
-    geography identical and avoid drift.
+5.  **Geocoding is read from fixed tables, not re-queried over the
+    network.** Nominatim look-ups are slow, fragile and can change over
+    time. The coordinates of the harvest locations and the country of
+    each record are stored in data/coordinates_harvest_locations.csv
+    and data/countries_harvest_records.csv.
 
 6.  **Precip units are mm/month (totprec × 86400 × 30) but only at
     the area-mean step.** Point-level totprec is left in
@@ -188,18 +188,9 @@ def load_ljungqvist_2023() -> pd.DataFrame:
     return long.drop(columns=["LocationGrain"])
 
 
-def load_geocoding_from_v1() -> pd.DataFrame:
-    """
-    Reuse the (Latitude, Longitude, Country) mapping from v1's CSV so the
-    geography of v2 is identical and we don't hit the network.
-    """
-    v1 = pd.read_csv(DATA_PROC / "yield_ljungqvist_2025.csv")
-    # v1 has VarLocationGrain naming inconsistent across the two halves;
-    # we go via (Type + Grain + Location-ish) which still maps via lat/lon
-    # plus a Location fallback. The simplest and most stable join key:
-    # (Type, Latitude, Longitude). Bring Country in too.
-    keep = v1[["Type", "Latitude", "Longitude", "Country"]].drop_duplicates()
-    return keep
+def load_record_countries() -> pd.DataFrame:
+    """Country of each harvest record, keyed by (Type, Latitude, Longitude)."""
+    return pd.read_csv(DATA_RAW / "countries_harvest_records.csv")
 
 
 def assemble_yields() -> pd.DataFrame:
@@ -207,13 +198,10 @@ def assemble_yields() -> pd.DataFrame:
     new_y = load_new_fcl_yields()
     old_y = load_ljungqvist_2023()
 
-    # The new files don't carry coordinates; pull them from v1 by Location
-    # (cell text) when possible. If not present, leave NaN — these records
-    # will be dropped at the climate-merge step.
-    v1 = pd.read_csv(DATA_PROC / "yield_ljungqvist_2025.csv")
-    loc_coords = (v1.dropna(subset=["Location"])
-                    .groupby("Location")[["Latitude", "Longitude"]]
-                    .first().reset_index())
+    # The new files don't carry coordinates; take them from the location
+    # table. Records without a match keep NaN and are dropped at the
+    # climate-merge step.
+    loc_coords = pd.read_csv(DATA_RAW / "coordinates_harvest_locations.csv")
     new_y = new_y.merge(loc_coords, on="Location", how="left")
 
     # Harmonise schema
@@ -552,8 +540,8 @@ def main() -> None:
     print("Loading conflict …")
     conflict = load_conflict()
 
-    print("Loading geocoding from v1 (Country) …")
-    geocode = load_geocoding_from_v1()
+    print("Loading record countries …")
+    geocode = load_record_countries()
 
     print("Computing teleconnection flags on full climate panel …")
     climate_for_flags = (climate.merge(pdsi, on=["loc_id", "Year"], how="left")

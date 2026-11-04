@@ -188,7 +188,7 @@ fig.savefig(
     dpi=300
 )
 
-plt.show()
+plt.close('all')
 print('Saved map_data_coverage.pdf')
 
 

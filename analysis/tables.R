@@ -12,8 +12,6 @@ suppressPackageStartupMessages({
   library(tidyr)
   library(fixest)
   library(modelsummary)
-  library(lmtest)
-  library(haven)
 })
 
 # ── paths ──────────────────────────────────────────────────────────────────────

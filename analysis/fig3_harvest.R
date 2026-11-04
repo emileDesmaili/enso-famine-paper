@@ -47,7 +47,7 @@ SCRIPT_DIR <- .script_dir()
 ROOT       <- normalizePath(file.path(SCRIPT_DIR, ".."), mustWork = FALSE)
 DATA_PROC  <- file.path(ROOT, "processed data")
 out_data   <- file.path(SCRIPT_DIR, "output", "data")
-fig_out    <- file.path(ROOT, "output", "figures", "appendix")
+fig_out    <- file.path(SCRIPT_DIR, "output", "figures", "appendix")
 tab_out    <- file.path(SCRIPT_DIR, "output", "tables")
 for (d in c(out_data, fig_out, tab_out)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
@@ -55,44 +55,9 @@ for (d in c(out_data, fig_out, tab_out)) dir.create(d, recursive = TRUE, showWar
 source(file.path(ROOT, "emileRegs.R"))
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-run_lp <- function(df, endog, shock = "nino34",
-                   controls = "i(decade)", hor = 3) {
-  lp_panel(
-    data          = df,
-    outcome       = endog,
-    main_var      = shock,
-    controls      = if (identical(controls, "decade")) "i(decade)"
-                    else paste(c("i(decade)", setdiff(controls, "decade")),
-                               collapse = " + "),
-    horizon       = hor,
-    fe            = "VarLocationGrain",
-    panel_id      = c("VarLocationGrain", "Year"),
-    vcov_formula  = DK ~ Year
-  )
-}
-
 extract_irf <- function(res, label, n_loc = NA_integer_) {
   res |>
     transmute(label = label, n_loc = n_loc, horizon, irf_mean, irf_up, irf_down)
-}
-
-irf_teleco_loop <- function(df, endog, hor_max,
-                             teleco_col     = "teleco_PDSI_10",
-                             controls_full  = c("decade", "JSL", "NAO_cal",
-                                                "ongoing_wars", "Deaths")) {
-  conditions <- list(
-    "All regions"        = NULL,
-    "Weakly affected"    = paste0(teleco_col, " == 0"),
-    "Teleconnected"      = paste0(teleco_col, " == 1"),
-    "Teleco w. controls" = paste0(teleco_col, " == 1")
-  )
-  bind_rows(lapply(names(conditions), function(label) {
-    cond   <- conditions[[label]]
-    df_sub <- if (!is.null(cond)) df |> filter(!!rlang::parse_expr(cond)) else df
-    ctrl   <- if (label == "Teleco w. controls") controls_full else "decade"
-    n_loc  <- dplyr::n_distinct(df_sub$VarLocationGrain)
-    extract_irf(run_lp(df_sub, endog, controls = ctrl, hor = hor_max), label, n_loc)
-  }))
 }
 
 load_yields <- function() {
@@ -370,7 +335,7 @@ export_20y_WR <- function(yield_2023) {
 ###############################################################################
 # Appendix: Bootstrap permutation (WR)
 ###############################################################################
-export_bootstrap_WR <- function(yield_2023, n_iter = 1000) {
+export_bootstrap_WR <- function(yield_2023, n_iter = 500) {
   set.seed(42)
   plan(multisession)
   WR <- load_yields_GT3() |>
@@ -382,7 +347,7 @@ export_bootstrap_WR <- function(yield_2023, n_iter = 1000) {
     res   <- try(run_lp_GT3(df_sh, "logyield", hor = 3), silent = TRUE)
     if (inherits(res, "try-error")) return(NULL)
     res |> transmute(iter = i, horizon, irf_mean)
-  }, .progress = TRUE) |>
+  }, .progress = TRUE, .options = furrr_options(seed = TRUE)) |>
     dplyr::bind_rows()
 
   null_list |>

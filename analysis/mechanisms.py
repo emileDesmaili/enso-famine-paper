@@ -44,10 +44,6 @@ plt.rcParams.update({
     'pdf.fonttype':      42,
 })
 
-def _panel(ax, letter):
-    ax.text(-0.08, 1.04, letter, transform=ax.transAxes,
-            fontsize=16, fontweight='bold', va='bottom', ha='left')
-
 def _polish(ax):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -62,21 +58,21 @@ prices = pd.read_csv('../processed data/price_2023_enso.csv')
 famine = pd.read_csv('../processed data/famine_region_data.csv')
 chron  = pd.read_csv('../analysis/output/data/fig2C_chronology_onsets.csv')
 
-# â”€â”€ OWDA 
+# ── OWDA 
 _coder   = xr.coders.CFDatetimeCoder(use_cftime=True)
 owda     = xr.open_dataset('../data/owda.nc', decode_times=_coder)
 owda     = owda.assign_coords(Year=owda.time).swap_dims({'time': 'Year'})
 owda     = owda.sel(Year=slice(1500, 1800))
 owda_eur = owda.sel(lat=slice(35, 70), lon=slice(-15, 35))
 
-# â”€â”€ ModE-RA temperature 
+# ── ModE-RA temperature 
 xds_t = xr.open_dataset(
     '../data/ModE-RA_ensmean_temp2_anom_wrt_1901-2000_1421-2008_mon.nc',
     decode_times=_coder)
 xds_t = xds_t.sel(time=slice('1500-01-01', '1800-12-31'))
 xds_t_eur = xds_t.sel(latitude=slice(70, 35), longitude=slice(-15, 35))
 
-# â”€â”€ ModE-RA precipitation (shift Nov/Dec to next year for NDJF) 
+# ── ModE-RA precipitation (shift Nov/Dec to next year for NDJF) 
 def _shift_dec(time_array):
     return [cftime.DatetimeGregorian(t.year+1, t.month, t.day)
             if t.month in [11, 12] else t for t in time_array]
@@ -88,7 +84,7 @@ xds_p = xds_p.sel(time=slice('1500-01-01', '1800-12-31'))
 xds_p = xds_p.assign_coords(time=('time', _shift_dec(xds_p.time.values)))
 xds_p_eur = xds_p.sel(latitude=slice(70, 35), longitude=slice(-15, 35))
 
-# â”€â”€ seasonal aggregates by year 
+# ── seasonal aggregates by year 
 NDJF = [11, 12, 1, 2]
 AMJJ = [4, 5, 6, 7]
 
@@ -244,6 +240,6 @@ for row_i, (row_label, ds, var, cmap_name, (vmin, vmax), cbar_label) in enumerat
 
 plt.savefig('../analysis/output/figures/extended data/figED_mechanisms_maps.pdf',
             dpi=300, bbox_inches='tight')
-plt.show()
+plt.close('all')
 print('Dots = p < 0.10 (Welch t-test vs all non-famine years)')
 

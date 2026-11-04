@@ -29,7 +29,7 @@ fish = pd.read_csv('../data/Big_DF.csv')
 
 cols = ['Year', "MunichHerring001old",
         'GdanskHerring001',
-          #'DutchHerring001.old',
+          'DutchHerring001.old',
         "BergenStockfish001",
         'ViennaStockfish001',
         'LondonSaltedCod001',
@@ -67,26 +67,13 @@ fish_long
 # In[18]:
 
 
-from geopy.geocoders import Nominatim
-import time
-
+# City coordinates (geocoded once with Nominatim; stored in data/ so the
+# pipeline does not depend on a network service)
 cities = fish_long.Location.unique()
 
-geolocator = Nominatim(user_agent="city_geocoder")
-
-city_to_coords = {}
-
-for city in cities:
-    try:
-        location = geolocator.geocode(city)
-        if location:
-            city_to_coords[city] = (location.latitude, location.longitude)
-            print(f"{city}: ({location.latitude}, {location.longitude})")
-        else:
-            print(f"{city}: Not found")
-    except Exception as e:
-        print(f"Error with {city}: {e}")
-    time.sleep(1)  # To avoid getting blocked by the server
+coords = pd.read_csv('../data/coordinates_fish_cities.csv').set_index('Location')
+city_to_coords = {city: (coords.at[city, 'Latitude'], coords.at[city, 'Longitude'])
+                  for city in cities if city in coords.index}
 
 fish_long['Latitude'] = fish_long['Location'].map(lambda x: city_to_coords[x][0] if x in city_to_coords else None)
 fish_long['Longitude'] = fish_long['Location'].map(lambda x: city_to_coords[x][1] if x in city_to_coords else None)

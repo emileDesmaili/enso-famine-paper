@@ -38,6 +38,8 @@ import seaborn as sns
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import matplotlib.colors as mcolors
+import matplotlib.patheffects as pe
 from matplotlib.patches import Rectangle, Patch
 from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea
 
@@ -47,6 +49,19 @@ DATA_PROC = ROOT / "processed data"
 OUT_DATA  = Path(__file__).parent / "output" / "data"
 OUT_MAIN  = Path(__file__).parent / "output" / "figures" / "main"
 OUT_MAIN.mkdir(parents=True, exist_ok=True)
+OUT_APP   = Path(__file__).parent / "output" / "figures" / "appendix"
+
+# Files written by the ML runs (ml_onset_survival.py). The ML results are cached,
+# but the models are re-run whenever the cache or any of these outputs is missing,
+# so a fresh clone still regenerates the SI figures.
+_ONSET_SETS = ["NINO34", "NINO_conflict", "Nino_conflict_temp", "Nino_conflict_precip"]
+ML_ONSET_OUTPUTS = (
+    [OUT_APP / f"MLOnset_{s}_{k}.pdf" for s in _ONSET_SETS for k in ("counts", "skillHor")]
+    + [OUT_APP / f"MLOnset_{s}_importances.pdf" for s in _ONSET_SETS[1:]]
+    + [OUT_APP / "figA_ML_onset_confusion_roc_All_features.pdf"])
+ML_SURV_OUTPUTS = (
+    [OUT_APP / f"MLSurvival_{a}_{b}.pdf" for a in ("CI", "featimp") for b in ("nestedCV", "fullsample")]
+    + [OUT_DATA / "fig4C_cv_fold_scores.csv"])
 
 # ── Nature-style global rcParams ───────────────────────────────────────────────
 FS   = 22   # tick / body
@@ -223,9 +238,12 @@ def _draw_1A(ax, data):
 
 
 def _build_region_palette(data):
-    """Return ordered list of regions and their color dict (shared by B and C)."""
+    """Return ordered list of regions and their color dict (shared by B and C).
+    Samples the `Spectral` colormap (reversed: blue → green → yellow → red)
+    at evenly-spaced points."""
     regions = sorted(data["Region"].unique(), reverse=True)
-    colors  = sns.color_palette("tab20", len(regions))
+    colors  = [tuple(c) for c in
+               plt.cm.Spectral_r(np.linspace(0.05, 0.95, len(regions)))[:, :3]]
     return regions, {r: colors[i] for i, r in enumerate(regions)}
 
 
@@ -281,6 +299,8 @@ def _draw_1B(ax_gantt, ax_count, data, regions, region_colors):
 
 
 def _draw_1C(ax, data, region_colors):
+    """Side-by-side bar map (matched to Panel B's per-region palette) with a
+    lat/lon graticule."""
     region_stats = data.groupby("Region").agg(
         famine_years  =("Famine",       "sum"),
         famine_periods=("Famine_start", "sum"),
@@ -301,10 +321,32 @@ def _draw_1C(ax, data, region_colors):
                   region_stats["famine_periods"].max())
     scale   = 50 / max_val
 
-    ax.coastlines(linewidth=0.8)
-    ax.add_feature(cfeature.LAND,  facecolor="lightgray", alpha=0.45)
-    ax.add_feature(cfeature.OCEAN, facecolor="lightblue", zorder=0, alpha=0.5)
     ax.set_extent([-10, 35, 36, 70], crs=ccrs.PlateCarree())
+    ax.add_feature(cfeature.OCEAN, facecolor="#e6f0f5", zorder=0)
+    ax.add_feature(cfeature.LAND,  facecolor="#f2ecdc", zorder=1)
+    ax.coastlines(linewidth=0.6, edgecolor="#4a4a4a")
+
+    # Lat/lon graticule — labels forced to the outer left / bottom axes.
+    gl = ax.gridlines(draw_labels=True, x_inline=False, y_inline=False,
+                      linewidth=0.4, color="#8c8c8c",
+                      alpha=0.55, linestyle=(0, (2, 3)))
+    gl.top_labels    = False
+    gl.right_labels  = False
+    gl.xlocator      = mticker.FixedLocator(list(range(-10, 36, 10)))
+    gl.ylocator      = mticker.FixedLocator(list(range(40, 71, 10)))
+    gl.xlabel_style  = {"size": FS - 6, "color": "#333333"}
+    gl.ylabel_style  = {"size": FS - 6, "color": "#333333"}
+
+    # L-shaped frame: keep only the left and bottom axes borders; hide the
+    # default cartopy "geo" outline and the top/right spines.
+    for sp in ("geo", "top", "right"):
+        if sp in ax.spines:
+            ax.spines[sp].set_visible(False)
+    for sp in ("left", "bottom"):
+        if sp in ax.spines:
+            ax.spines[sp].set_visible(True)
+            ax.spines[sp].set_color("#4a4a4a")
+            ax.spines[sp].set_linewidth(1.0)
 
     for _, row in region_stats.iterrows():
         r = row["Region"]
@@ -339,6 +381,7 @@ def _draw_1C(ax, data, region_colors):
               fontsize=FS, frameon=False, prop={"weight": "bold"})
 
 
+# ── Choropleth version — kept for reversion. ────────────────────────────────
 def make_fig1():
     data = pd.read_csv(DATA_PROC / "famine_region_data.csv")
     regions, region_colors = _build_region_palette(data)
@@ -366,7 +409,7 @@ def make_fig1():
     _draw_1B(ax_b1, ax_b2, data, regions, region_colors)
     _label(ax_b1, "b")
 
-    # C – geo bar-map, bottom-right
+    # C – geo bar-map, bottom-right.
     proj = ccrs.LambertConformal(central_longitude=10, central_latitude=50,
                                  standard_parallels=(45, 55))
     ax_c = fig.add_subplot(gs[1, 1], projection=proj)
@@ -399,7 +442,8 @@ def _draw_2A(ax):
                          capprops=dict(linewidth=1.3),
                          flierprops=dict(marker="o", markersize=0,
                                          markerfacecolor="black"))
-        ax.scatter(np.random.normal(i, 0.07, len(sub)), sub,
+        # horizontal jitter, seeded so the figure is identical on every run
+        ax.scatter(np.random.default_rng(i).normal(i, 0.07, len(sub)), sub,
                    color="black", alpha=0.45, s=18, zorder=3)
 
     # Welch t-test (one-sided: famine onset > no famine)
@@ -547,7 +591,12 @@ def _draw_2E(ax, in_sample_acc, cv_scores):
                 palette={"In-sample": "firebrick", "Cross-Validation": "darksalmon"},
                 ax=ax)
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
-                color="black", fmt="none", capsize=0, elinewidth=1.5)
+                color="black", fmt="none", capsize=6, elinewidth=1.5)
+    # Overlay the individual cross-validation fold accuracies (n = 10 folds)
+    rng = np.random.default_rng(0)
+    ax.scatter(cv_scores, 1 + rng.uniform(-0.18, 0.18, len(cv_scores)),
+               s=45, facecolor="white", edgecolor="black", linewidth=1.2,
+               zorder=4)
     ax.set_xlim(0, 1)
     ax.set_xlabel("Accuracy", fontsize=LAB + 2)
     ax.set_ylabel("")
@@ -556,22 +605,41 @@ def _draw_2E(ax, in_sample_acc, cv_scores):
     _polish(ax)
 
 
+def _run_ml(func_name):
+    """Run an ML routine of ml_onset_survival.py. The module sets its own
+    matplotlib rcParams for the SI panels it saves; running it inside
+    rc_context restores this script's style for the main figures afterwards."""
+    import importlib.util
+    with mpl.rc_context():
+        spec = importlib.util.spec_from_file_location(
+            "ml07", Path(__file__).parent / "ml_onset_survival.py")
+        ml07 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ml07)
+        return getattr(ml07, func_name)()
+
+
 def make_fig2():
     _cache2 = OUT_DATA / "_ml_onset_cache.pkl"
-    if _cache2.exists():
+    if _cache2.exists() and all(p.exists() for p in ML_ONSET_OUTPUTS):
         print("  Loading ML onset classifier from cache …")
         with open(_cache2, "rb") as f:
             ml = pickle.load(f)
     else:
         print("  Running ML onset classifier …")
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "ml07", Path(__file__).parent / "ml_onset_survival.py")
-        ml07 = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ml07)
-        ml = ml07.run_onset_classifier()
+        ml = _run_ml("run_onset_classifier")
         with open(_cache2, "wb") as f:
             pickle.dump(ml, f)
+
+    # Observed famine onsets with their predicted and counterfactual status;
+    # read by the Fig. 3b composite map and by mechanisms.py (Extended Data Fig. 3)
+    chron = ml["df_chron"]
+    (chron[chron["Observed"] == 1]
+        .rename(columns={"Predicted": "Predicted_ML",
+                         "Counterfactual": "Counterfactual_ML",
+                         "Famine_dur": "Famine_duration"})
+        [["Year", "Observed", "Predicted_ML", "Counterfactual_ML",
+          "NINO34_actual", "NINO34_counterfactual", "Famine_duration"]]
+        .to_csv(OUT_DATA / "fig2C_chronology_onsets.csv", index=False))
 
     fig = plt.figure(figsize=(22, 20))
     # Row 0: A (left) + B (right)
@@ -835,8 +903,9 @@ def _compute_teleconnections():
 
 def _draw_pdsi_composite_map(ax):
     """
-    Panel B replacement: PDSI composite anomaly for Counterfactual-ML famine years,
-    replicating mechanisms.ipynb Fig 1a with black stippling (p < 0.05).
+    Fig. 3b: scPDSI composite anomaly for the ML-attributed ENSO famine years
+    minus all other years, stippled where a two-sided Welch t-test gives p <= 0.10
+    (same composite as ED Fig. 3a, see mechanisms.py).
     """
     import xarray as xr
     import cftime
@@ -1058,18 +1127,13 @@ def _draw_4B(ax):
 
 def make_fig4():
     _cache4 = OUT_DATA / "_ml_survival_cache.pkl"
-    if _cache4.exists():
+    if _cache4.exists() and all(p.exists() for p in ML_SURV_OUTPUTS):
         print("  Loading ML survival models from cache …")
         with open(_cache4, "rb") as f:
             methods, means, errors, perm_dfs = pickle.load(f)
     else:
         print("  Running ML survival models …")
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "ml07", Path(__file__).parent / "ml_onset_survival.py")
-        ml07 = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ml07)
-        methods, means, errors, perm_dfs = ml07.run_survival_ml()
+        methods, means, errors, perm_dfs = _run_ml("run_survival_ml")
         with open(_cache4, "wb") as f:
             pickle.dump((methods, means, errors, perm_dfs), f)
 
@@ -1100,8 +1164,16 @@ def make_fig4():
     ax_c = fig.add_subplot(gs[1, 0])
     bars = ax_c.bar(methods, means, yerr=errors, capsize=5,
                     color=colors, edgecolor=None, width=0.55)
-    for bar, m, e in zip(bars, means, errors):
-        ax_c.text(bar.get_x() + bar.get_width() / 2, m + e + 0.02,
+    # Overlay the outer-fold C-indices (n = 10 folds per model)
+    folds = pd.read_csv(OUT_DATA / "fig4C_cv_fold_scores.csv")
+    rng   = np.random.default_rng(0)
+    for i, m in enumerate(methods):
+        ax_c.scatter(i + rng.uniform(-0.12, 0.12, len(folds)), folds[m],
+                     s=40, facecolor="white", edgecolor="black",
+                     linewidth=1.1, zorder=4)
+    for i, (bar, m, e) in enumerate(zip(bars, means, errors)):
+        top = max(m + e, folds[methods[i]].max())
+        ax_c.text(bar.get_x() + bar.get_width() / 2, top + 0.02,
                   f"{m:.3f}", ha="center", va="bottom", fontsize=FS + 2)
     ax_c.set_ylabel("Concordance Index", fontsize=LAB + 2)
     ax_c.set_ylim(0, 0.9)

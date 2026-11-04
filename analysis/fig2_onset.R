@@ -21,7 +21,6 @@ suppressPackageStartupMessages({
   library(fixest)
   library(broom)
   library(purrr)
-  library(modelsummary)
 })
 
 setFixest_notes(FALSE)
@@ -76,17 +75,17 @@ export_fig2A <- function(data) {
 ###############################################################################
 export_fig2B <- function(data) {
   est0 <- feols(Famine_start ~ nino34:Region,
-                data = data, vcov = NW ~ Year,
+                data = data, vcov = DK ~ Year,
                 panel.id = c("Region", "Year"))
 
   est2 <- feols(Famine_start ~ nino34:Region + i(Decade) | Region,
                 data = data, vcov = DK ~ Year,
                 panel.id = c("Region", "Year"))
 
+  # Same specification as column 3 of ED Table 1 (common controls)
   est3 <- feols(
-    Famine_start ~ nino34:Region + i(Decade) +
-      JSL:Region + NAO_cal:Region +
-      ongoing_wars:Region + log(1 + Deaths):Region | Region,
+    Famine_start ~ nino34:Region + i(Decade) + JSL + NAO_cal +
+      ongoing_wars + log(1 + Deaths) | Region,
     data = data, vcov = DK ~ Year,
     panel.id = c("Region", "Year")
   )

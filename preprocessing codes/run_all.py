@@ -5,26 +5,26 @@ Executes each preprocessing script in order. All outputs (cleaned CSVs)
 land under ``processed data/``, consumed by the analysis pipeline in
 ``analysis/run_all.R`` and ``analysis/run_all.py``.
 
-Run from the repo root with the famine-enso conda env:
+Run with the famine-enso conda environment, from any directory:
     conda run -n famine-enso python "preprocessing codes/run_all.py"
-    # or (Windows absolute path):
-    C:/Users/emile/anaconda3/envs/famine-enso/python.exe \
-        "preprocessing codes/run_all.py"
+
+Each script is run from this folder, because the scripts read and write
+relative to it (../data, ../processed data).
 
 Order:
-    1. process_Famines.py             – famine records & region panel
-    2. process_lungqvist_prices.py    – Ljungqvist price data
-    3. process_ljungqvist_yields.py   – Ljungqvist v2 yield panel
-    4. process_federico_prices.py     – Federico wheat price series
-    5. process_fishprices.py          – historical fish prices
-    6. process_fishcatch.py           – historical fish catches
+    1. process_Famines.py             – famine chronology, region-year panel
+    2. process_lungqvist_prices.py    – Ljungqvist & Seim grain prices
+    3. process_ljungqvist_yields.py   – grain harvest panel
+    4. process_federico_prices.py     – Federico et al. grain prices (SI)
+    5. process_fishprices.py          – cod and herring prices
+    6. process_fishcatch.py           – cod and herring catches (SI)
 """
 
 import subprocess
 import sys
 from pathlib import Path
 
-PREPROC_DIR = Path(__file__).parent
+PREPROC_DIR = Path(__file__).resolve().parent
 
 steps: list[Path] = [
     PREPROC_DIR / "process_Famines.py",
@@ -46,19 +46,16 @@ def run_script(path: Path) -> None:
     _banner(f"Running script: {path.name}")
     result = subprocess.run(
         [sys.executable, str(path)],
+        cwd=PREPROC_DIR,
         check=False,
     )
     if result.returncode != 0:
-        print(f"WARNING: {path.name} exited with code {result.returncode}")
-    else:
-        print(f"Done: {path.name}\n")
+        sys.exit(f"ERROR: {path.name} exited with code {result.returncode}")
+    print(f"Done: {path.name}\n")
 
 
 if __name__ == "__main__":
     for path in steps:
-        if not path.exists():
-            print(f"SKIP: {path.name} not found")
-            continue
         run_script(path)
 
     print("Preprocessing pipeline complete. Outputs in processed data/.")

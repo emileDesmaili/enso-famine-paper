@@ -51,7 +51,7 @@ SCRIPT_DIR <- .script_dir()
 ROOT       <- normalizePath(file.path(SCRIPT_DIR, ".."), mustWork = FALSE)
 DATA_PROC  <- file.path(ROOT, "processed data")
 out_data   <- file.path(SCRIPT_DIR, "output", "data")
-fig_out    <- file.path(ROOT, "output", "figures", "appendix")
+fig_out    <- file.path(SCRIPT_DIR, "output", "figures", "appendix")
 for (d in c(out_data, fig_out)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
 # ── load emileRegs helpers ────────────────────────────────────────────────────

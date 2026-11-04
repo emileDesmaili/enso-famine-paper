@@ -27,10 +27,10 @@ from scipy.stats import pearsonr, kendalltau, spearmanr
 # In[ ]:
 
 
-oats = pd.read_excel('..data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Oats').dropna(axis=0, how='all')
-wheat = pd.read_excel('..data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Wheat').dropna(axis=0, how='all')
-barley = pd.read_excel('..data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Barley').dropna(axis=0, how='all')
-rye = pd.read_excel('..data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Rye').dropna(axis=0, how='all')
+oats = pd.read_excel('../data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Oats').dropna(axis=0, how='all')
+wheat = pd.read_excel('../data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Wheat').dropna(axis=0, how='all')
+barley = pd.read_excel('../data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Barley').dropna(axis=0, how='all')
+rye = pd.read_excel('../data/Grain_prices_series_Ljungqvist_and_Seim.xlsx', sheet_name='Rye').dropna(axis=0, how='all')
 
 
 # In[3]:
@@ -211,7 +211,7 @@ for i, row in avg_df.iterrows():
 
 
 # Load OWDA and compute weighted PDSI
-owda = xr.open_dataset("..data/owda.nc")
+owda = xr.open_dataset("../data/owda.nc")
 owda["PDSI_weighted"] = np.sqrt(np.cos(np.deg2rad(owda["lat"])) + 1e-6) * owda["pdsi"]
 
 # Flatten the 3D (time, lat, lon) data into a long table of gridpoints
@@ -300,7 +300,7 @@ end = 1800
 
 
 # Load dataset
-xds = xr.open_dataset('..data/ModE-RA_ensmean_temp2_anom_wrt_1901-2000_1421-2008_mon.nc')
+xds = xr.open_dataset('../data/ModE-RA_ensmean_temp2_anom_wrt_1901-2000_1421-2008_mon.nc')
 
 # Extract year and filter by given range
 xds = xds.assign(Year=xds.time.dt.year)
@@ -376,7 +376,7 @@ temp_df = pd.merge(temp_df, europe_temp_df, on='Year', how='left')
 
 
 # Load dataset
-xds_p = xr.open_dataset('..data/ModE-RA_ensmean_totprec_anom_wrt_1901-2000_1421-2008_mon.nc')
+xds_p = xr.open_dataset('../data/ModE-RA_ensmean_totprec_anom_wrt_1901-2000_1421-2008_mon.nc')
 
 # Extract year and filter by given range
 xds_p = xds_p.assign(Year=xds_p.time.dt.year)
@@ -451,8 +451,8 @@ precip_df = pd.merge(precip_df, europe_precip_df, on='Year', how='left')
 # In[ ]:
 
 
-enso3 = pd.read_csv("..data/cook2024-R15-ENSO-Rec-1500-2000.txt", delimiter="\t", comment="#", na_values="NA")
-lat_lon = pd.read_csv("..data/cook2024-ENSO-latlon.txt", delimiter="\t", comment="#", na_values="NA")
+enso3 = pd.read_csv("../data/cook2024-R15-ENSO-Rec-1500-2000.txt", delimiter="\t", comment="#", na_values="NA")
+lat_lon = pd.read_csv("../data/cook2024-ENSO-latlon.txt", delimiter="\t", comment="#", na_values="NA")
 
 # Melt the ENSO DataFrame to long format
 enso_melted = enso3.melt(id_vars=["Year"], var_name="gridpoint", value_name="enso")
@@ -486,11 +486,11 @@ enso.corr()
 # In[ ]:
 
 
-jsl = pd.read_excel("..data/reconstructed EU JSL.xlsx")
+jsl = pd.read_excel("../data/reconstructed EU JSL.xlsx")
 
-nao_cal = pd.read_excel("..data/nao_reconst.xlsx", sheet_name="Figure 2a", header=3)
+nao_cal = pd.read_excel("../data/nao_reconst.xlsx", sheet_name="Figure 2a", header=3)
 nao_cal = nao_cal.rename(columns={"Time (years AD)" : "Year"})
-nao_model = pd.read_excel("..data/nao_reconst.xlsx", sheet_name="Figure 2b", header=3)
+nao_model = pd.read_excel("../data/nao_reconst.xlsx", sheet_name="Figure 2b", header=3)
 nao_model = nao_model.rename(columns={"Time (years AD)" : "Year"})
 
 nao = pd.merge(nao_cal, nao_model, on="Year", suffixes=('_cal', '_model'))
@@ -504,8 +504,8 @@ nao = nao.rename(columns={"Ensemble Mean_cal" : "NAO_cal", "Ensemble Mean_model"
 
 
 # Load the data
-post1400 = pd.read_excel('..data/Conflict-Catalog-18-vars.xlsx')
-pre1400 = pd.read_excel('..data/Brecke-Pre-1400-European-Conflicts.xlsx')
+post1400 = pd.read_excel('../data/Conflict-Catalog-18-vars.xlsx')
+pre1400 = pd.read_excel('../data/Brecke-Pre-1400-European-Conflicts.xlsx')
 
 
 # Convert StartYear and EndYear to integer if not NaN
@@ -651,7 +651,7 @@ for Location, group in df_climate.groupby('Location'):
 # In[ ]:
 
 
-df_total.to_csv("..processed data/price_2023_enso.csv", index=False)
+df_total.to_csv("../processed data/price_2023_enso.csv", index=False)
 
 
 # In[ ]:

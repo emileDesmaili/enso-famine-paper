@@ -1,24 +1,17 @@
 """
-ML analyses for Figures 2 and 4  (Nature-style combined panels)
+ML analyses behind Figures 2c–e and 4c,d (imported by assemble_figures.py,
+which draws the main figures from the returned results).
 
-Figure 2 (5 panels, assembled here after 02_fig2_onset.R saves A & B PNGs):
-  A – NINO3.4 boxplot famine onset vs no-famine    [from R: _fig2A_panel.png]
-  B – LPM coefficients by region                   [from R: _fig2B_panel.png]
-  C – ML classifier chronology & counterfactual
-  D – ML permutation feature importances
-  E – ML accuracy / skill
-
-Figure 4 (2 ML panels, assembled here; R script provides A+B PNGs):
-  C – Nested-CV concordance bar chart
-  D – Permutation importances 2×2
-
-Outputs → analysis/output/figures/main/
-  fig2_combined.pdf
-  fig4_combined.pdf   (if R panels present, else fig4CD_combined.pdf)
+run_onset_classifier()  gradient-boosting attribution of famine onsets
+                        (Fig. 2c–e; SI Figs 2–6)
+run_survival_ml()       nested-CV survival models (Fig. 4c,d; SI Fig. 11)
 
 Outputs → analysis/output/figures/appendix/
-  figA_ML_CI_fullsample.pdf
-  figA_ML_featimp_fullsample.pdf
+  MLOnset_<features>_{counts,importances,skillHor}.pdf
+  figA_ML_onset_confusion_roc_All_features.pdf
+  MLSurvival_{CI,featimp}_{nestedCV,fullsample}.pdf
+Outputs → analysis/output/data/
+  fig4C_cv_fold_scores.csv   (outer-fold C-indices, Fig. 4c points)
 """
 
 from pathlib import Path
@@ -28,7 +21,6 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import matplotlib.image as mpimg
 import seaborn as sns
 
 from sklearn.ensemble import GradientBoostingClassifier
@@ -44,9 +36,8 @@ from sksurv.metrics import concordance_index_censored
 # ── paths ──────────────────────────────────────────────────────────────────────
 ROOT      = Path(__file__).parent.parent
 DATA_PROC = ROOT / "processed data"
-OUT_MAIN  = Path(__file__).parent / "output" / "figures" / "main"
 OUT_APP   = Path(__file__).parent / "output" / "figures" / "appendix"
-OUT_MAIN.mkdir(parents=True, exist_ok=True)
+OUT_DATA  = Path(__file__).parent / "output" / "data"
 OUT_APP.mkdir(parents=True, exist_ok=True)
 
 # ── Nature-style global rcParams ───────────────────────────────────────────────
@@ -106,16 +97,6 @@ def _polish(ax):
     ax.tick_params(axis="both", which="major", length=5, width=1.4,
                    direction="out", labelsize=FONT_SIZE)
 
-
-def _panel_label(ax, letter, x=-0.16, y=1.05):
-    ax.text(x, y, letter, transform=ax.transAxes,
-            fontsize=PANEL_SIZE, fontweight="bold",
-            va="bottom", ha="left")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ① FAMINE ONSET – ML CLASSIFIER  (Fig 2 C, D, E)
-# ══════════════════════════════════════════════════════════════════════════════
 
 def run_onset_classifier():
     """
@@ -266,6 +247,11 @@ def _save_skill_pdf(in_sample_acc, cv_scores, suffix):
                 legend=False, ax=ax)
     ax.errorbar(x=cv_scores.mean(), y=1, xerr=cv_scores.std(),
                 color="black", fmt="none", capsize=4, elinewidth=1.5)
+    # Overlay the individual cross-validation fold accuracies (n = 10 folds)
+    rng = np.random.default_rng(0)
+    ax.scatter(cv_scores, 1 + rng.uniform(-0.18, 0.18, len(cv_scores)),
+               s=18, facecolor="white", edgecolor="black", linewidth=0.8,
+               zorder=4)
     ax.set_xlim(0, 1)
     #remove y axis label that says skill
     ax.set_ylabel("")
@@ -498,6 +484,12 @@ def run_survival_ml():
 
     print("Nested CV C-indices:", dict(zip(methods, [f"{m:.3f}" for m in means])))
 
+    # Outer-fold C-indices, overlaid as points on the Fig 4C bars
+    pd.DataFrame({"fold": np.arange(1, outer_cv.get_n_splits() + 1),
+                  "RSF": rsf_scores, "CoxGB": gbsa_scores,
+                  "CoxPH": coxph_scores, "CoxNet": lasso_scores}
+                 ).to_csv(OUT_DATA / "fig4C_cv_fold_scores.csv", index=False)
+
     cols_rename = {f: FEAT_LABELS.get(f, f) for f in features}
     perm_data   = {
         "RSF":    pd.DataFrame(perm_rsf.importances.T,
@@ -515,8 +507,15 @@ def run_survival_ml():
     fig_ci, ax_ci = plt.subplots(figsize=(4, 6))
     bars = ax_ci.bar(methods, means, yerr=errors, capsize=4,
                      color=colors, edgecolor=None)
-    for bar, m, e in zip(bars, means, errors):
-        ax_ci.text(bar.get_x() + bar.get_width() / 2, m + e + 0.02,
+    # Overlay the outer-fold C-indices (n = 10 folds per model)
+    fold_scores = [rsf_scores, gbsa_scores, coxph_scores, lasso_scores]
+    rng = np.random.default_rng(0)
+    for i, sc in enumerate(fold_scores):
+        ax_ci.scatter(i + rng.uniform(-0.15, 0.15, len(sc)), sc, s=14,
+                      facecolor="white", edgecolor="black", linewidth=0.7,
+                      zorder=4)
+    for bar, m, e, sc in zip(bars, means, errors, fold_scores):
+        ax_ci.text(bar.get_x() + bar.get_width() / 2, max(m + e, sc.max()) + 0.02,
                    f"{m:.3f}", ha="center", va="bottom", fontsize=FONT_SIZE)
     ax_ci.set_ylabel("Concordance Index")
     ax_ci.set_ylim(0, 0.85)
@@ -546,73 +545,6 @@ def run_survival_ml():
     fig_fi.savefig(OUT_APP / "MLSurvival_featimp_nestedCV.pdf", dpi=300)
     plt.close(fig_fi)
     print("Saved MLSurvival_featimp_nestedCV.pdf")
-
-    # ── Assemble Figure 4 C + D ──────────────────────────────────────────────
-    png_a4 = OUT_APP / "_fig4A_panel.png"
-    png_b4 = OUT_APP / "_fig4B_panel.png"
-    have_r4 = png_a4.exists() and png_b4.exists()
-
-    if have_r4:
-        fig4 = plt.figure(figsize=(18, 18))
-        gs4  = gridspec.GridSpec(2, 2, figure=fig4,
-                                 height_ratios=[1, 1.3],
-                                 hspace=0.55, wspace=0.38)
-
-        ax_a4 = fig4.add_subplot(gs4[0, 0])
-        ax_a4.imshow(mpimg.imread(str(png_a4)))
-        ax_a4.axis("off")
-        ax_a4.text(-0.05, 1.04, "A", transform=ax_a4.transAxes,
-                   fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-        ax_b4 = fig4.add_subplot(gs4[0, 1])
-        ax_b4.imshow(mpimg.imread(str(png_b4)))
-        ax_b4.axis("off")
-        ax_b4.text(-0.05, 1.04, "B", transform=ax_b4.transAxes,
-                   fontsize=PANEL_SIZE, fontweight="bold", va="bottom", ha="left")
-
-        ax_c4 = fig4.add_subplot(gs4[1, 0])
-        ax_d4 = fig4.add_subplot(gs4[1, 1])
-    else:
-        fig4 = plt.figure(figsize=(18, 10))
-        gs4  = gridspec.GridSpec(1, 2, figure=fig4, wspace=0.38)
-        ax_c4 = fig4.add_subplot(gs4[0, 0])
-        ax_d4 = fig4.add_subplot(gs4[0, 1])
-
-    # Panel C: concordance bar
-    bars = ax_c4.bar(methods, means, yerr=errors, capsize=5,
-                     color=colors, edgecolor=None, width=0.55)
-    for bar, m, e in zip(bars, means, errors):
-        ax_c4.text(bar.get_x() + bar.get_width() / 2, m + e + 0.02,
-                   f"{m:.3f}", ha="center", va="bottom", fontsize=FONT_SIZE)
-    ax_c4.set_ylabel("Concordance Index")
-    ax_c4.set_ylim(0, 0.85)
-    _polish(ax_c4)
-    _panel_label(ax_c4, "c")
-
-    # Panel D: permutation importances 2×2
-    gs_d = gridspec.GridSpecFromSubplotSpec(2, 2, subplot_spec=ax_d4.get_subplotspec(),
-                                            hspace=0.45, wspace=0.4)
-    ax_d4.set_visible(False)
-    for i, (model_name, df) in enumerate(perm_data.items()):
-        ax_sub = fig4.add_subplot(gs_d[i // 2, i % 2])
-        medians   = df.median().sort_values(ascending=False)
-        df_sorted = df[medians.index]
-        sns.boxplot(data=df_sorted, orient="h", ax=ax_sub,
-                    color=colors[i], fliersize=3)
-        ax_sub.set_title(titles[i], fontsize=FONT_SIZE)
-        ax_sub.set_xlabel("Permutation Importance (\u0394 C-index)")
-        ax_sub.set_ylabel("")
-        _polish(ax_sub)
-        if i == 0:
-            _panel_label(ax_sub, "d", x=-0.20)
-
-    # Only save the combined Fig 4 when the R-produced panels A + B are on
-    # disk; the C+D-only fallback (MLSurvival_concordance_importances.pdf)
-    # is not referenced anywhere in the paper.
-    if have_r4:
-        fig4.savefig(OUT_APP / "fig4_combined.pdf", dpi=300, bbox_inches="tight")
-        print("Saved fig4_combined.pdf")
-    plt.close(fig4)
 
     # ── Appendix: full-sample concordance ────────────────────────────────────
     rsf_fs = RandomSurvivalForest(random_state=42, n_jobs=-1,

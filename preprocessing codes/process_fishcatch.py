@@ -19,7 +19,7 @@ import cartopy.crs as ccrs
 # In[ ]:
 
 
-catches = pd.read_csv('..data/fish_catch_europe.csv')
+catches = pd.read_csv('../data/fish_catch_europe.csv')
 
 
 # In[3]:
@@ -43,8 +43,8 @@ catches_long['location'].unique()
 # In[ ]:
 
 
-enso3 = pd.read_csv("..data/cook2024-R15-ENSO-Rec-1500-2000.txt", delimiter="\t", comment="#", na_values="NA")
-lat_lon = pd.read_csv("..data/cook2024-ENSO-latlon.txt", delimiter="\t", comment="#", na_values="NA")
+enso3 = pd.read_csv("../data/cook2024-R15-ENSO-Rec-1500-2000.txt", delimiter="\t", comment="#", na_values="NA")
+lat_lon = pd.read_csv("../data/cook2024-ENSO-latlon.txt", delimiter="\t", comment="#", na_values="NA")
 
 # Melt the ENSO DataFrame to long format
 enso_melted = enso3.melt(id_vars=["Year"], var_name="gridpoint", value_name="enso")
@@ -75,11 +75,11 @@ enso = pd.merge(enso, nino12.to_dataframe().reset_index().rename(columns={"enso"
 # In[ ]:
 
 
-jsl = pd.read_excel("..data/reconstructed EU JSL.xlsx")
+jsl = pd.read_excel("../data/reconstructed EU JSL.xlsx")
 
-nao_cal = pd.read_excel("..data/nao_reconst.xlsx", sheet_name="Figure 2a", header=3)
+nao_cal = pd.read_excel("../data/nao_reconst.xlsx", sheet_name="Figure 2a", header=3)
 nao_cal = nao_cal.rename(columns={"Time (years AD)" : "Year"})
-nao_model = pd.read_excel("data/nao_reconst.xlsx", sheet_name="Figure 2b", header=3)
+nao_model = pd.read_excel("../data/nao_reconst.xlsx", sheet_name="Figure 2b", header=3)
 nao_model = nao_model.rename(columns={"Time (years AD)" : "Year"})
 
 nao = pd.merge(nao_cal, nao_model, on="Year", suffixes=('_cal', '_model'))
@@ -93,8 +93,8 @@ nao = nao.rename(columns={"Ensemble Mean_cal" : "NAO_cal", "Ensemble Mean_model"
 
 
 # Load the data
-post1400 = pd.read_excel('..data/Conflict-Catalog-18-vars.xlsx')
-pre1400 = pd.read_excel('..data/Brecke-Pre-1400-European-Conflicts.xlsx')
+post1400 = pd.read_excel('../data/Conflict-Catalog-18-vars.xlsx')
+pre1400 = pd.read_excel('../data/Brecke-Pre-1400-European-Conflicts.xlsx')
 
 
 # Convert StartYear and EndYear to integer if not NaN
@@ -179,5 +179,5 @@ df_total
 # In[ ]:
 
 
-df_total.to_csv("..processed data/fishcatch_enso.csv", index=False)
+df_total.to_csv("../processed data/fishcatch_enso.csv", index=False)
 

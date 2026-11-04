@@ -11,8 +11,6 @@ import seaborn as sns
 import xarray as xr
 from itertools import chain
 import cftime
-from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut
 import matplotlib.patheffects as path_effects
 
 

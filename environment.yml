@@ -1,18 +1,21 @@
+# Python environment used for the paper (preprocessing, machine learning, maps
+# and figure assembly). Versions are the ones the published results were
+# produced with. Create with:  conda env create -f environment.yml
 name: famine-enso
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - python=3.10
-  - scikit-survival
-  - ipykernel
-  - matplotlib
-  - seaborn
-  - xarray
-  - bottleneck
-  - netcdf4
-  - dask
-  - geopy
-  - openpyxl
-  - cartopy
-  - statsmodels
-prefix: C:\Users\emile\anaconda3\envs\famine-enso
+  - numpy=2.2.6
+  - pandas=2.3.3
+  - scipy=1.15.2
+  - scikit-learn=1.7.1
+  - scikit-survival=0.25.0
+  - xarray=2025.6.1
+  - netcdf4=1.7.2
+  - cftime=1.6.4
+  - bottleneck=1.5.0
+  - cartopy=0.25.0
+  - matplotlib=3.10.0
+  - seaborn=0.13.2
+  - openpyxl=3.1.5
